@@ -163,7 +163,7 @@ levelFeatureToAppearance :: LevelCell -> Double -> Int -> Int -> Cell
 levelFeatureToAppearance lcell monotonic_time x y = case lcell of
   Water        -> Cell Vivid Blue Dull Black '~'
   WoodenBoards -> Cell Vivid Yellow Dull Black '.'
-  Rock         -> Cell Vivid Black Dull Black '█'
+  Rock         -> Cell Vivid Black Vivid Black ' '
   MountainRock -> Cell Vivid White Vivid Black '^'
   Grass        -> Cell Vivid Green Dull Black '.'
 
