@@ -1,0 +1,69 @@
+name:                submarination
+version:             0.1.0.0
+synopsis:            Submarination Game
+license:             BSD3
+license-file:        LICENSE
+author:              Mikko Juola
+maintainer:          mikko.juola+dev@iki.fi
+category:            Game
+build-type:          Simple
+extra-source-files:  ChangeLog.md
+cabal-version:       >=1.10
+
+library
+  exposed-modules:    Submarination
+                      Submarination.Creature
+                      Submarination.GameState
+                      Submarination.Item
+                      Submarination.MonotonicClock
+                      Submarination.Level
+                      Submarination.Render
+                      Submarination.Vendor
+                      Submarination.Terminal
+                      Submarination.Terminal.Common
+
+  if impl(ghcjs)
+    cpp-options:       -DGHCJS_BROWSER
+    exposed-modules:   Submarination.Terminal.GHCJS
+    build-depends:     ghcjs-base
+  else
+    exposed-modules:   Submarination.Terminal.Unix
+
+  build-depends:       ansi-terminal
+                      ,array
+                      ,base >=4.9 && <5.0
+                      ,clock
+                      ,containers
+                      ,lens
+                      ,linear
+                      ,mtl
+                      ,protolude
+                      ,stm
+                      ,text
+                      ,transformers
+  hs-source-dirs:      src
+  ghc-options:         -Wall -fno-warn-name-shadowing
+  default-language:    Haskell2010
+  c-sources:           cbits/terminal.c
+  default-extensions:  OverloadedStrings
+                       DeriveGeneric
+                       DeriveDataTypeable
+                       NoImplicitPrelude
+                       TemplateHaskell
+                       GeneralizedNewtypeDeriving
+                       RankNTypes
+                       ScopedTypeVariables
+                       BangPatterns
+                       LambdaCase
+                       FlexibleInstances
+                       MultiWayIf
+
+executable submarination
+  main-is:             Main.hs
+  build-depends:       base >=4.9 && <5.0
+                      ,submarination
+                      ,protolude
+  hs-source-dirs:      exe
+  ghc-options:         -Wall -fno-warn-name-shadowing -rtsopts -threaded
+  default-language:    Haskell2010
+
