@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Submarination
   ( runSubmarination )
   where
@@ -24,7 +26,9 @@ splashScreen knob = do
   showSplashScreen knob
   ch <- getInputChar
   case ch of
+#ifndef GHCJS_BROWSER
     'q' -> return ()
+#endif
     ' ' -> evalStateT (startGame knob) startGameState
     _ -> splashScreen knob
 
@@ -35,8 +39,10 @@ startGame knob = do
 
   ch <- getInputChar
   case ch of
+#ifndef GHCJS_BROWSER
     'q' -> return ()
-    dir_ch | dir_ch `elem` ("hjklyubn" :: String) -> do
+#endif
+    dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) -> do
       move dir_ch
       startGame knob
     _ -> startGame knob

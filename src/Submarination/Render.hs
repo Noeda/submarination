@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Submarination.Render
   ( terminalRenderer
   , UpdateRequestState()
@@ -110,8 +112,11 @@ renderSplashScreen = mutateTerminalStateM $ do
   setText 3 10 Dull White Dull Black "Make your choice:"
   setText 3 12  Vivid Cyan Dull Black "space)"
   setText 10 12 Vivid White Dull Black "Start a new game"
+
+#ifndef GHCJS_BROWSER
   setText 3 13  Vivid Cyan Dull Black "q)"
   setText 10 13 Vivid White Dull Black "Quit"
+#endif
 
 renderGameState :: MonadTerminalState m => GameState -> Integer -> m ()
 renderGameState game_state monotonic_time_ns = runReaderT (renderGameState' monotonic_time_ns) game_state
