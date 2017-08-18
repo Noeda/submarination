@@ -42,7 +42,7 @@ library
                       ,text
                       ,transformers
   hs-source-dirs:      src
-  ghc-options:         -Wall -fno-warn-name-shadowing
+  ghc-options:         -Wall -fno-warn-name-shadowing -O2
   default-language:    Haskell2010
   c-sources:           cbits/terminal.c
   default-extensions:  OverloadedStrings
@@ -64,6 +64,6 @@ executable submarination
                       ,submarination
                       ,protolude
   hs-source-dirs:      exe
-  ghc-options:         -Wall -fno-warn-name-shadowing -rtsopts -threaded
+  ghc-options:         -Wall -fno-warn-name-shadowing -rtsopts -threaded -O2
   default-language:    Haskell2010
 
