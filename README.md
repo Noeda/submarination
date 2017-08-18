@@ -1,6 +1,8 @@
 Submarination
 =============
 
+[![Build Status](https://travis-ci.org/Noeda/submarination.svg?branch=master)](https://travis-ci.org/Noeda/submarination)
+
 This is a roguelike themed around diving with a submarine.
 
 Compilation
