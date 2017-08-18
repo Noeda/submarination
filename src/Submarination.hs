@@ -50,5 +50,13 @@ move 'y' = moveDirection D7
 move 'u' = moveDirection D9
 move 'b' = moveDirection D1
 move 'n' = moveDirection D3
+move '2' = moveDirection D2
+move '8' = moveDirection D8
+move '4' = moveDirection D4
+move '6' = moveDirection D6
+move '7' = moveDirection D7
+move '9' = moveDirection D9
+move '1' = moveDirection D1
+move '3' = moveDirection D3
 move _ = return ()
 
