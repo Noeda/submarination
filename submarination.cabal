@@ -7,7 +7,6 @@ author:              Mikko Juola
 maintainer:          mikko.juola+dev@iki.fi
 category:            Game
 build-type:          Simple
-extra-source-files:  ChangeLog.md
 cabal-version:       >=1.10
 
 library

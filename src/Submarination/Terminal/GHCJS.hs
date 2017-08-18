@@ -50,7 +50,7 @@ withKeyboardTerminal action = mask $ \restore -> do
 
   -- This div holds everything
   term_div <- make_div_element
-  set_style term_div "font-family: monospace;"
+  set_style term_div "font-family: 'Subbie', monospace; font-size: 1.3em;"
 
   spanner term_div (restore action)
 
@@ -125,7 +125,7 @@ paintTerminal (Just old_term) term = liftIO $ do
 
 cellToStyle :: Cell -> JSString
 cellToStyle cell =
-  foregroundToStyle cell `mappend` backgroundToStyle cell `mappend` "margin: -0.1px; padding: -0.1px;"
+  foregroundToStyle cell `mappend` backgroundToStyle cell
 
 foregroundToStyle :: Cell -> JSString
 foregroundToStyle (Cell Vivid White _ _ _) = "color: #fff;"
@@ -161,7 +161,7 @@ backgroundToStyle (Cell _ _ Dull Blue _) = "background: #008;"
 backgroundToStyle (Cell _ _ Dull Cyan _) = "background: #088;"
 backgroundToStyle (Cell _ _ Dull Magenta _) = "background: #808;"
 backgroundToStyle (Cell _ _ Dull Yellow _) = "background: #880;"
-backgroundToStyle (Cell _ _ Dull Black _) = "background: #000;"
+backgroundToStyle (Cell _ _ Dull Black _) = "background-rgba:rgba(0,0,0,0);"
 
 paintAllTerminal :: MonadIO m => TerminalState -> m ()
 paintAllTerminal term = liftIO $ do

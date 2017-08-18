@@ -3,4 +3,6 @@
 *.swp
 *.hi
 *.o
+web/upload.sh
+web/bundled.js
 
