@@ -148,7 +148,7 @@ creatureToAppearance creature = case creature of
 
 renderCreatures :: GameMonadRoTerminal s ()
 renderCreatures = do
-  level <- gr currentLevel
+  level <- gr (^.currentLevel)
   V2 px py <- view $ player.playerPosition
 
   lift $ ifor_ (level^.creatures) $ \(V2 cx cy) creature -> do
@@ -177,6 +177,7 @@ levelFeatureToAppearance lcell monotonic_time x y = case lcell of
   Hull          -> Cell Dull Yellow Dull Black '█'
   InteriorFloor -> Cell Dull Yellow Dull Black '.'
   Hatch         -> Cell Vivid Yellow Dull Black '+'
+  OpenHatch     -> Cell Vivid Yellow Dull Black '-'
   Window        -> Cell Vivid Cyan Dull Black '◘'
 
   cell | cell == SurfaceWater || cell == SurfaceWaterSplashing ->
@@ -219,7 +220,7 @@ renderSub monotonic_time_ns = do
 
 renderSurface :: Integer -> GameMonadRoTerminal s ()
 renderSurface monotonic_time_ns = do
-  level <- gr currentLevel
+  level <- gr (^.currentLevel)
 
   -- Render surface relative to player
   V2 px py <- view $ player.playerPosition

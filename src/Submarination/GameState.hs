@@ -1,8 +1,10 @@
 module Submarination.GameState where
 
 import Control.Monad.Trans.Except
-import Control.Lens hiding ( Level )
+import Control.Lens hiding ( Level, levels )
 import Data.Data
+import qualified Data.Map.Strict as M
+import Data.Maybe
 import Data.List ( (!!) )
 import Linear.V2
 import Protolude hiding ( (&) )
@@ -28,7 +30,9 @@ data GameState = GameState
   { _player    :: !Player
   , _sub       :: !Sub
   , _menuState :: !MenuState
-  , _depth     :: !Int }
+  , _depth     :: !Int
+  , _turn      :: !Int
+  , _levels    :: !(M.Map Int Level) }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data Player = Player
@@ -83,6 +87,8 @@ startGameState = GameState
                      , _playerOxygen = 100
                      , _playerShells = 1000 }
   , _menuState = NotInMenu
+  , _turn = 0
+  , _levels = M.singleton 0 surfaceLevel
   , _sub = Sub { _subPosition = V2 18 (-2)
                , _topology = composeVertically (composeHorizontally bridge (composeHorizontally standardRoom standardRoom)) airLock }
   , _depth  = 0 }
@@ -123,19 +129,72 @@ directionToDelta D9 = V2 1 (-1)
 directionToDelta D3 = V2 1 1
 directionToDelta D1 = V2 (-1) 1
 
+advanceTurn :: forall m. Monad m => GameMonad m ()
+advanceTurn = do
+  turn += 1
+  walkActiveMetadata
+ where
+  walkActiveMetadata :: GameMonad m ()
+  walkActiveMetadata = do
+    walkCurrentLevelMetadata
+    walkSubLevelMetadata
+
+  walkCurrentLevelMetadata :: GameMonad m ()
+  walkCurrentLevelMetadata = do
+    new_level <- walkLevel =<< use currentLevel
+    currentLevel .= new_level
+
+  walkSubLevelMetadata :: GameMonad m ()
+  walkSubLevelMetadata = do
+    topo <- use $ sub.topology
+    new_sub_topo <- forOf subLevels topo walkLevel
+    sub.topology .= new_sub_topo
+
+  walkLevel :: Level -> GameMonad m Level
+  walkLevel lvl = do
+    current_turn <- use turn
+
+    player_pos <- use $ player.playerPosition
+
+    new_lvl <- walkLevelActiveMetadata lvl $ \coords cell metadata -> return $ case (cell, metadata) of
+      (OpenHatch, HatchAutoClose close_turn) | close_turn <= current_turn && coords /= player_pos ->
+        (Hatch, Nothing)
+      (OpenHatch, metadata@(HatchAutoClose{})) ->
+        (OpenHatch, Just metadata)
+      (feature, _) -> (feature, Nothing)
+
+    return new_lvl
+
+
 moveDirection :: Monad m => Direction -> GameMonad m ()
 moveDirection direction = do
   old_pos <- gm (^.player.playerPosition)
   let new_playerpos = old_pos + directionToDelta direction
 
-  -- Can I walk there?
-  walkable <- isWalkable <$> gm (levelCellAt new_playerpos)
+  lcell <- gm (^.levelCellAt new_playerpos)
 
-  -- Is there some monster in there?
-  when walkable $ do
-    occupied <- gm $ isOccupied new_playerpos
-    unless occupied $
-      player.playerPosition .= new_playerpos
+  -- Is it a hatch? (that I can open)
+  if lcell == Hatch
+    then openHatch new_playerpos
+    else notHatch lcell new_playerpos
+ where
+  openHatch new_playerpos = do
+    current_turn <- use turn
+
+    levelCellAt new_playerpos .= OpenHatch
+    levelActiveMetadataAt new_playerpos .= (Just $ HatchAutoClose (current_turn+5))
+    advanceTurn
+
+  notHatch lcell new_playerpos = do
+    -- Can I walk there?
+    let walkable = isWalkable lcell
+
+    -- Is there some monster in there?
+    when walkable $ do
+      occupied <- gm $ isOccupied new_playerpos
+      unless occupied $ do
+        player.playerPosition .= new_playerpos
+        advanceTurn
 
 surfaceLevel :: Level
 surfaceLevel = levelFromStringsPlacements SurfaceWater placements
@@ -181,29 +240,56 @@ surfaceLevel = levelFromStringsPlacements SurfaceWater placements
 getMaximumOxygenLevel :: GameState -> Int
 getMaximumOxygenLevel _ = 100
 
-levelCellAt :: V2 Int -> GameState -> LevelCell
-levelCellAt coords@(V2 x y) gamestate =
-  -- If we are not near sub, look up level cell normally
-  if x < sx || y < sy || x >= sx+sw || y >= sy+sh
-    then currentLevel gamestate^.cellAt coords
-    -- If we *are* inside sub bounding box, attempt to look up sub level cell
-    -- instead.
-    else fromMaybe level_cell $ subCell (gamestate^.sub.topology) (V2 (x-sx) (y-sy))
+subOrLevelLens :: forall a.
+                  (V2 Int -> Lens' Level a)
+               -> (V2 Int -> Traversal' SubTopology a)
+               -> (V2 Int -> Lens' GameState a)
+subOrLevelLens level_lens sub_lens coords@(V2 x y) = lens get_it set_it
  where
-  level_cell = currentLevel gamestate^.cellAt coords
+  get_it :: GameState -> a
+  get_it gamestate =
+    -- If we are not near sub, look up level cell normally
+    if x < sx || y < sy || x >= sx+sw || y >= sy+sh
+      then level_cell
+      -- If we *are* inside sub bounding box, attempt to look up sub level cell
+      -- instead.
+      else fromMaybe level_cell $ case gamestate^..sub.topology.sub_lens (V2 (x-sx) (y-sy)) of
+             [target] -> Just target
+             _ -> Nothing
+   where
+    level_cell = gamestate^.currentLevel.level_lens coords
 
-  V2 sx sy = gamestate^.sub.subPosition
-  V2 sw sh = subSize (gamestate^.sub.topology)
+    V2 sx sy = gamestate^.sub.subPosition
+    V2 sw sh = subSize (gamestate^.sub.topology)
 
-currentLevel :: GameState -> Level
-currentLevel _ = surfaceLevel
+  set_it :: GameState -> a -> GameState
+  set_it gamestate new_cell =
+    gamestate & (failing (sub.topology.sub_lens (V2 (x-sx) (y-sy))) (currentLevel.level_lens coords)) .~ new_cell
+   where
+    V2 sx sy = gamestate^.sub.subPosition
+{-# INLINE subOrLevelLens #-}
+
+levelActiveMetadataAt :: V2 Int -> Lens' GameState (Maybe LevelActiveMetadata)
+levelActiveMetadataAt =
+  subOrLevelLens activeMetadataAt subActiveMetadataAt
+
+levelCellAt :: V2 Int -> Lens' GameState LevelCell
+levelCellAt = subOrLevelLens cellAt subCellP
+{-# INLINE levelCellAt #-}
+
+currentLevel :: Lens' GameState Level
+currentLevel = lens get_it set_it
+ where
+  get_it gs = fromJust $ M.lookup (gs^.depth) (gs^.levels)
+  set_it gs new_level = gs & levels.at (gs^.depth) .~ (Just new_level)
+{-# INLINE currentLevel #-}
 
 currentAreaName :: GameState -> Text
 currentAreaName _ = "--- SURFACE ---"
 
 isOccupied :: V2 Int -> GameState -> Bool
 isOccupied coords gamestate =
-  let cr = currentLevel gamestate
+  let cr = gamestate^.currentLevel
    in isJust $ cr^.creatures.at coords
 
 isOnSurface :: GameState -> Bool
@@ -227,7 +313,7 @@ attemptPurchase gs = fromMaybe gs $ do
 getCurrentVendor :: GameState -> Maybe Creature
 getCurrentVendor gs = runMaybeExcept $ do
   let playerpos = gs^.player.playerPosition
-      lvl = currentLevel gs
+      lvl = gs^.currentLevel
 
   for_ (allNeighbours playerpos) $ \candidate_pos ->
     case lvl^.creatures.at candidate_pos of

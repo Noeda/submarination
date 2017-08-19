@@ -6,7 +6,10 @@ module Submarination.Sub
   , composeHorizontally
   , composeVertically
   , subCell
-  , subSize )
+  , subCellP
+  , subActiveMetadataAt
+  , subSize
+  , subLevels )
   where
 
 import Control.Lens hiding ( Level )
@@ -23,6 +26,14 @@ data SubTopology
   | Composition !SubTopology !SubTopology !(V2 Int) (V2 Int)
   | Rotate90 !SubTopology
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+
+subLevels :: Traversal' SubTopology Level
+subLevels action (Rotate90 topo) = Rotate90 <$> subLevels action topo
+subLevels action (StandardRoom lvl) = StandardRoom <$> action lvl
+subLevels action (Bridge lvl) = Bridge <$> action lvl
+subLevels action (AirLock lvl) = AirLock <$> action lvl
+subLevels action (Composition topo1 topo2 offset sz) =
+  Composition <$> subLevels action topo1 <*> subLevels action topo2 <*> pure offset <*> pure sz
 
 standardRoom :: SubTopology
 standardRoom = StandardRoom $
@@ -48,38 +59,40 @@ airLock = AirLock $ levelFromStrings Hull
  ,"X+X"
  ,"XhX"]
 
-subCell :: SubTopology -> V2 Int -> Maybe LevelCell
-subCell (Composition topo1 topo2 (V2 ox oy) (V2 sw sh)) pos@(V2 x y) =
-  -- First do a check if we are at all inside the sub (this way we don't
-  -- compute tw1/th1/tw2/th2 until we have to check them).
-  if | x < 0 || y < 0 || x >= sw || y >= sh
-       -> Nothing
+subLens :: (V2 Int -> Lens' Level a) -> V2 Int -> Traversal' SubTopology a
+subLens level_lens coords@(V2 x y) action topo | x >= 0 && y >= 0 = case topo of
+  StandardRoom lvl | x < 5 && y < 5 -> StandardRoom <$> forOf (level_lens coords) lvl action
+  AirLock lvl | x < 3 && y < 3 -> AirLock <$> forOf (level_lens coords) lvl action
+  Bridge lvl | not (x == 0 && y == 0) &&
+               not (x == 0 && y == 4) &&
+               x < 5 && y < 5 -> Bridge <$> forOf (level_lens coords) lvl action
+  Composition topo1 topo2 offset@(V2 ox oy) (V2 w h) | x < w && y < h ->
+    let V2 tw1 th1 = subSize topo1
 
-     | x < tw1 && y < th1
-       -> subCell topo1 pos
+     in if x < tw1 && y < th1 && execState (subLens (\_ -> identity) coords (\i -> put True >> pure i) topo1) False
+          then Composition <$> (self coords action topo1) <*> pure topo2 <*> pure offset <*> pure (V2 w h)
+          else Composition topo1 <$> (self (V2 (x-ox) (y-oy)) action topo2) <*> pure offset <*> pure (V2 w h)
 
-     | x >= ox && y >= oy && x < ox+tw2 && y < oy+th2
-       -> subCell topo2 (V2 (x-ox) (y-oy))
 
-     | otherwise
-       -> Nothing
+  _ -> pure topo
  where
-  V2 tw1 th1 = subSize topo1
-  V2 tw2 th2 = subSize topo2
-subCell (StandardRoom lvl) pos@(V2 x y) =
-  if x >= 0 && y >= 0 && x < 5 && y < 5
-    then Just $ lvl^.cellAt pos
-    else Nothing
-subCell (AirLock lvl) pos@(V2 x y) =
-  if x >= 0 && y >= 0 && x < 3 && y < 3
-    then Just $ lvl^.cellAt pos
-    else Nothing
-subCell (Bridge lvl) pos@(V2 x y) =
-  if x >= 0 && y >= 0 && x < 5 && y < 5 && not (x == 0 && y == 0) && not (x == 0 && y == 4)
-    then Just $ lvl^.cellAt pos
-    else Nothing
-subCell (Rotate90 inner) (V2 x y) =
-  subCell inner (V2 y x)
+  self = subLens level_lens
+
+subLens _ _ _ topo = pure topo
+{-# INLINE subLens #-}
+
+subActiveMetadataAt :: V2 Int -> Traversal' SubTopology (Maybe LevelActiveMetadata)
+subActiveMetadataAt = subLens activeMetadataAt
+{-# INLINE subActiveMetadataAt #-}
+
+subCellP :: V2 Int -> Traversal' SubTopology LevelCell
+subCellP = subLens cellAt
+{-# INLINE subCellP #-}
+
+subCell :: SubTopology -> V2 Int -> Maybe LevelCell
+subCell topo coords = case topo^..subCellP coords of
+  [cell] -> Just cell
+  _ -> Nothing
 {-# INLINEABLE subCell #-}
 
 subSize :: SubTopology -> V2 Int
