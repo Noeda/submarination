@@ -27,28 +27,28 @@ data Plural
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
 
 itemName :: Item -> Plural -> Text
-itemName SardineTin   Singular     = "tin of sardines"
+itemName SardineTin   Singular     = "a tin of sardines"
 itemName SardineTin   Many         = "tins of sardines"
-itemName Poylent      Singular     = "bottle of poylent"
+itemName Poylent      Singular     = "a bottle of poylent"
 itemName Poylent      Many         = "bottles of poylent"
-itemName Chicken      Singular     = "chicken"
+itemName Chicken      Singular     = "a chicken"
 itemName Chicken      Many         = "chickens"
-itemName Potato       Singular     = "potato"
+itemName Potato       Singular     = "a potato"
 itemName Potato       Many         = "potatoes"
-itemName Freezer      Singular     = "freezer"
+itemName Freezer      Singular     = "a freezer"
 itemName Freezer      Many         = "freezers"
-itemName Refrigerator Singular     = "refrigerator"
+itemName Refrigerator Singular     = "a refrigerator"
 itemName Refrigerator Many         = "refrigerators"
-itemName Microwave    Singular     = "microwave"
+itemName Microwave    Singular     = "a microwave"
 itemName Microwave    Many         = "microwaves"
-itemName Whiskey      Singular     = "bottle of whiskey"
+itemName Whiskey      Singular     = "a bottle of whiskey"
 itemName Whiskey      Many         = "bottles of whiskey"
 
 itemDescription :: Item -> Text
 itemDescription SardineTin =
   "Sardines in a tin. It's hard to ravish a tin of sardines but they'll fill you up."
 itemDescription Poylent =
-  "Bottle filled with goo that meets all human nutritional requirements, the latest and only product of Beet Labs. Does not come with warranty."
+  "Bottle filled with goo that meets all nutritional requirements. It's latest and only product of Beet Labs. Non-refundable."
 itemDescription Chicken =
   "A common avian delicacy. Chicken is rich in protein and actually tastes like something. However, chicken spoils quickly if it's not refrigerated or frozen and it must be warmed up before eaten."
 itemDescription Potato =

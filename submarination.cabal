@@ -17,6 +17,7 @@ library
                       Submarination.MonotonicClock
                       Submarination.Level
                       Submarination.Render
+                      Submarination.Sub
                       Submarination.Vendor
                       Submarination.Terminal
                       Submarination.Terminal.Common

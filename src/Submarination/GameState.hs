@@ -3,16 +3,32 @@ module Submarination.GameState where
 import Control.Monad.Trans.Except
 import Control.Lens hiding ( Level )
 import Data.Data
+import Data.List ( (!!) )
 import Linear.V2
-import Protolude
+import Protolude hiding ( (&) )
 
 import Submarination.Creature
+import Submarination.Item
 import Submarination.Level
+import Submarination.Sub
 import Submarination.Terminal
+import Submarination.Vendor
+
+data MenuState
+  = NotInMenu
+  | MenuSelection !Int
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+
+data Sub = Sub
+  { _topology :: !SubTopology
+  , _subPosition :: !(V2 Int) }
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data GameState = GameState
-  { _player :: !Player
-  , _depth  :: !Int }
+  { _player    :: !Player
+  , _sub       :: !Sub
+  , _menuState :: !MenuState
+  , _depth     :: !Int }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data Player = Player
@@ -35,6 +51,7 @@ data Direction
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
 makeLenses ''GameState
 makeLenses ''Player
+makeLenses ''Sub
 
 allNeighbours :: V2 Int -> [V2 Int]
 allNeighbours (V2 x y) =
@@ -65,7 +82,26 @@ startGameState = GameState
                      , _playerHealth = 100
                      , _playerOxygen = 100
                      , _playerShells = 1000 }
+  , _menuState = NotInMenu
+  , _sub = Sub { _subPosition = V2 18 (-2)
+               , _topology = composeVertically (composeHorizontally bridge (composeHorizontally standardRoom standardRoom)) airLock }
   , _depth  = 0 }
+
+currentMenuSelection :: GameState -> Int
+currentMenuSelection gs = case gs^.menuState of
+  NotInMenu -> 0
+  MenuSelection selection -> selection
+
+currentVendorItemSelection :: GameState -> Maybe Item
+currentVendorItemSelection gs = do
+  vendor <- getCurrentVendor gs
+  let current_selection' = currentMenuSelection gs
+      current_selection = max 0 $ min (length items-1) current_selection'
+      items = vendorItems vendor
+
+  guard (not $ null items)
+
+  return $ items !! current_selection
 
 gm :: Monad m => (GameState -> a) -> GameMonad m a
 gm action = do
@@ -106,13 +142,13 @@ surfaceLevel = levelFromStringsPlacements SurfaceWater placements
   [".....,................................................."
   ,"...,...........,.................................,....."
   ,"...........................,..........................."
-  ,".........,.............,.............,................."
-  ,"......................................................."
-  ,".................================,,........,..........."
-  ,"...,,...........==================,,..,................"
-  ,"................==================,,..................."
-  ,"....,..........====================,.............,....."
-  ,"...............########g=g#########,,.................."
+  ,".........,.............,............#,................."
+  ,".........#,............................................"
+  ,".........^,......================,,........,..........."
+  ,"...,,...........==================,,..,...,............"
+  ,"...........#,...==================,,.#,..^,............"
+  ,"....,..#...^^,,====================,....##,......,....."
+  ,"...#.......##,,########g=g#########,,.................."
   ,"......###########^^#^#^gg=#^^##################,......."
   ,"#######################ggg##^##########################"
   ,"######################1ggg2##^^^^######################"
@@ -146,7 +182,18 @@ getMaximumOxygenLevel :: GameState -> Int
 getMaximumOxygenLevel _ = 100
 
 levelCellAt :: V2 Int -> GameState -> LevelCell
-levelCellAt coords gamestate = currentLevel gamestate^.cellAt coords
+levelCellAt coords@(V2 x y) gamestate =
+  -- If we are not near sub, look up level cell normally
+  if x < sx || y < sy || x >= sx+sw || y >= sy+sh
+    then currentLevel gamestate^.cellAt coords
+    -- If we *are* inside sub bounding box, attempt to look up sub level cell
+    -- instead.
+    else fromMaybe level_cell $ subCell (gamestate^.sub.topology) (V2 (x-sx) (y-sy))
+ where
+  level_cell = currentLevel gamestate^.cellAt coords
+
+  V2 sx sy = gamestate^.sub.subPosition
+  V2 sw sh = subSize (gamestate^.sub.topology)
 
 currentLevel :: GameState -> Level
 currentLevel _ = surfaceLevel
@@ -167,6 +214,15 @@ runMaybeExcept action =
   case runExcept action of
     Left value -> Just value
     _ -> Nothing
+
+attemptPurchase :: GameState -> GameState
+attemptPurchase gs = fromMaybe gs $ do
+  item_selection <- currentVendorItemSelection gs
+  let shells = gs^.player.playerShells
+
+  guard (shells >= itemPrice item_selection)
+
+  return $ gs & player.playerShells -~ itemPrice item_selection
 
 getCurrentVendor :: GameState -> Maybe Creature
 getCurrentVendor gs = runMaybeExcept $ do

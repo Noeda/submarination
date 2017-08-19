@@ -4,12 +4,14 @@ module Submarination
   ( runSubmarination )
   where
 
+import Control.Lens
 import Prelude ( String )
 import Protolude
 
 import Submarination.GameState
 import Submarination.Render
 import Submarination.Terminal
+import Submarination.Vendor
 
 runSubmarination :: IO ()
 runSubmarination = withKeyboardTerminal $ do
@@ -45,7 +47,24 @@ startGame knob = do
     dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) -> do
       move dir_ch
       startGame knob
+    menu_ch | menu_ch `elem` ("az " :: String) -> do
+      menu menu_ch
+      startGame knob
     _ -> startGame knob
+
+menu :: Monad m => Char -> GameMonad m ()
+menu ch = do
+  gm getCurrentVendor >>= \case
+    Nothing -> return ()
+    Just vendor -> do
+      current_selection' <- gm currentMenuSelection
+      let items = vendorItems vendor
+          current_selection = max 0 $ min (length items-1) current_selection'
+      case ch of
+        'a' | current_selection > 0 -> menuState .= MenuSelection (current_selection-1)
+        'z' | current_selection < length items-1 -> menuState .= MenuSelection (current_selection+1)
+        ' ' -> modify attemptPurchase
+        _ -> return ()
 
 move :: Monad m => Char -> GameMonad m ()
 move 'j' = moveDirection D2

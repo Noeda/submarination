@@ -35,6 +35,10 @@ data LevelCell
   | Rock
   | MountainRock
   | Grass
+  | Hull
+  | Window
+  | Hatch
+  | InteriorFloor
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 makeLenses ''Level
 
@@ -46,6 +50,10 @@ isWalkable WoodenBoards = True
 isWalkable Rock = False
 isWalkable MountainRock = False
 isWalkable Grass = True
+isWalkable Hull = False
+isWalkable InteriorFloor = True
+isWalkable Hatch = True
+isWalkable Window = False
 
 cellAt :: V2 Int -> Lens' Level LevelCell
 cellAt coords = lens get_it set_it
@@ -86,9 +94,13 @@ levelFromStringsPlacements default_cell settings strs =
   chToFeature ch = case ch of
     '.' -> SurfaceWater
     ',' -> SurfaceWaterSplashing
+    '+' -> InteriorFloor
     '=' -> WoodenBoards
     'S' -> Water
     '#' -> Rock
+    'X' -> Hull
+    'W' -> Window
+    'h' -> Hatch
     '^' -> MountainRock
     'g' -> Grass
     _   -> Water

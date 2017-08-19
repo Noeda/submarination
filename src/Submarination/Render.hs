@@ -20,8 +20,10 @@ import System.Timeout
 
 import Submarination.Creature
 import Submarination.GameState
+import Submarination.Item
 import Submarination.MonotonicClock
 import Submarination.Level
+import Submarination.Sub
 import Submarination.Terminal
 import Submarination.Vendor
 
@@ -128,6 +130,7 @@ renderGameState' monotonic_time_ns = do
     clear
 
     let rendering = do renderLevel monotonic_time_ns
+                       renderSub monotonic_time_ns
                        renderCreatures
                        renderPlayer
                        renderHud monotonic_time_ns
@@ -166,11 +169,15 @@ renderLevel monotonic_time_ns = gr isOnSurface >>= \case
 
 levelFeatureToAppearance :: LevelCell -> Double -> Int -> Int -> Cell
 levelFeatureToAppearance lcell monotonic_time x y = case lcell of
-  Water        -> Cell Vivid Blue Dull Black '~'
-  WoodenBoards -> Cell Vivid Yellow Dull Black '.'
-  Rock         -> Cell Vivid Black Vivid Black ' '
-  MountainRock -> Cell Vivid White Vivid Black '^'
-  Grass        -> Cell Vivid Green Dull Black '.'
+  Water         -> Cell Vivid Blue Dull Black '~'
+  WoodenBoards  -> Cell Vivid Yellow Dull Black '.'
+  Rock          -> Cell Vivid Black Vivid Black ' '
+  MountainRock  -> Cell Vivid White Vivid Black '^'
+  Grass         -> Cell Vivid Green Dull Black '.'
+  Hull          -> Cell Dull Yellow Dull Black '█'
+  InteriorFloor -> Cell Dull Yellow Dull Black '.'
+  Hatch         -> Cell Vivid Yellow Dull Black '+'
+  Window        -> Cell Vivid Cyan Dull Black '◘'
 
   cell | cell == SurfaceWater || cell == SurfaceWaterSplashing ->
     let theta = sin $ sectime*0.1+dx*0.5+dy*0.25
@@ -191,6 +198,24 @@ levelFeatureToAppearance lcell monotonic_time x y = case lcell of
 
 mapMiddleOnTerminal :: (Int, Int)
 mapMiddleOnTerminal = (40, 12)
+
+renderSub :: Integer -> GameMonadRoTerminal s ()
+renderSub monotonic_time_ns = do
+  V2 sx sy <- gr (^.sub.subPosition)
+  V2 sw sh <- gr (^.sub.topology.to subSize)
+  V2 px py <- view $ player.playerPosition
+
+  topo <- gr (^.sub.topology)
+
+  lift $ for_ [V2 x y | x <- [px-11..px+11], y <- [py-11..py+11]] $ \(V2 lx ly) -> do
+    let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) mapMiddleOnTerminal
+    when (lx >= sx && ly >= sy && lx < sx+sw && ly < sy+sh) $
+      case subCell topo (V2 (lx-sx) (ly-sy)) of
+        Nothing -> return ()
+        Just subcell ->
+          uncurry setCell' terminalcoord (levelFeatureToAppearance subcell monotonic_time sx sy)
+ where
+  monotonic_time = fromIntegral (monotonic_time_ns `div` 1000000) :: Double
 
 renderSurface :: Integer -> GameMonadRoTerminal s ()
 renderSurface monotonic_time_ns = do
@@ -268,9 +293,30 @@ renderSurfaceHud = do
     setText 53 6 Vivid Yellow Dull Black "$"
     setText 54 6 Vivid White Dull Black $ ": " <> show shells
 
+  menu_selection <- gr currentMenuSelection
+
   gr getCurrentVendor >>= \case
     Just vendor -> do
       let desc = vendorDescription vendor
       lift $ setWrappedText 3 3 25 Dull White Dull Black desc
+
+      let items = zip [8..] (vendorItems vendor)
+          last_y = length items + 8
+
+      lift $ for_ items $ \(y, item) -> do
+        let selection_num = y-8
+        if selection_num == menu_selection
+          then do setText 2 y Vivid Green Dull Black "➔"
+                  setText 4 y Vivid Blue Dull Black (itemName item Singular)
+                  setText 53 8 Vivid White Dull Black (itemName item Singular)
+                  setWrappedText 53 10 25 Dull White Dull Black (itemDescription item)
+          else setText 4 y Dull Blue Dull Black (itemName item Singular)
+
+        setText 24 y Vivid Yellow Dull Black "$"
+        setText 25 y Vivid White Dull Black $ show $ itemPrice item
+
+      lift $ setText 2 (last_y+2) Dull White Dull Black "[A] ↑ [Z] ↓"
+      lift $ setText 2 (last_y+3) Dull White Dull Black "[Space] Purchase"
+
     _ -> return ()
 
