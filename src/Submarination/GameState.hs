@@ -156,15 +156,12 @@ advanceTurn = do
 
     player_pos <- use $ player.playerPosition
 
-    new_lvl <- walkLevelActiveMetadata lvl $ \coords cell metadata -> return $ case (cell, metadata) of
+    walkLevelActiveMetadata lvl $ \coords cell metadata -> return $ case (cell, metadata) of
       (OpenHatch, HatchAutoClose close_turn) | close_turn <= current_turn && coords /= player_pos ->
         (Hatch, Nothing)
-      (OpenHatch, metadata@(HatchAutoClose{})) ->
+      (OpenHatch, metadata@HatchAutoClose{}) ->
         (OpenHatch, Just metadata)
       (feature, _) -> (feature, Nothing)
-
-    return new_lvl
-
 
 moveDirection :: Monad m => Direction -> GameMonad m ()
 moveDirection direction = do
@@ -264,7 +261,7 @@ subOrLevelLens level_lens sub_lens coords@(V2 x y) = lens get_it set_it
 
   set_it :: GameState -> a -> GameState
   set_it gamestate new_cell =
-    gamestate & (failing (sub.topology.sub_lens (V2 (x-sx) (y-sy))) (currentLevel.level_lens coords)) .~ new_cell
+    gamestate & failing (sub.topology.sub_lens (V2 (x-sx) (y-sy))) (currentLevel.level_lens coords) .~ new_cell
    where
     V2 sx sy = gamestate^.sub.subPosition
 {-# INLINE subOrLevelLens #-}
@@ -281,7 +278,7 @@ currentLevel :: Lens' GameState Level
 currentLevel = lens get_it set_it
  where
   get_it gs = fromJust $ M.lookup (gs^.depth) (gs^.levels)
-  set_it gs new_level = gs & levels.at (gs^.depth) .~ (Just new_level)
+  set_it gs new_level = gs & levels.at (gs^.depth) .~ Just new_level
 {-# INLINE currentLevel #-}
 
 currentAreaName :: GameState -> Text

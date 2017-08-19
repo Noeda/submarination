@@ -31,8 +31,8 @@ data Level = Level
   , _creatures           :: !(M.Map (V2 Int) Creature) }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
-data LevelActiveMetadata
-  = HatchAutoClose !Int
+newtype LevelActiveMetadata
+  = HatchAutoClose Int
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data LevelCell
@@ -68,7 +68,7 @@ isWalkable Window = False
 walkLevelActiveMetadata :: Applicative f => Level -> (V2 Int -> LevelCell -> LevelActiveMetadata -> f (LevelCell, Maybe LevelActiveMetadata)) -> f Level
 walkLevelActiveMetadata level action =
   injector <$>
-  (ifor (level^.levelActiveMetadata) $ \coords metadata ->
+  ifor (level^.levelActiveMetadata) (\coords metadata ->
      action coords (level^.cellAt coords) metadata)
  where
   injector :: M.Map (V2 Int) (LevelCell, Maybe LevelActiveMetadata) -> Level

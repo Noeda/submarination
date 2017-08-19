@@ -53,18 +53,17 @@ startGame knob = do
     _ -> startGame knob
 
 menu :: Monad m => Char -> GameMonad m ()
-menu ch = do
-  gm getCurrentVendor >>= \case
-    Nothing -> return ()
-    Just vendor -> do
-      current_selection' <- gm currentMenuSelection
-      let items = vendorItems vendor
-          current_selection = max 0 $ min (length items-1) current_selection'
-      case ch of
-        'a' | current_selection > 0 -> menuState .= MenuSelection (current_selection-1)
-        'z' | current_selection < length items-1 -> menuState .= MenuSelection (current_selection+1)
-        ' ' -> modify attemptPurchase
-        _ -> return ()
+menu ch = gm getCurrentVendor >>= \case
+  Nothing -> return ()
+  Just vendor -> do
+    current_selection' <- gm currentMenuSelection
+    let items = vendorItems vendor
+        current_selection = max 0 $ min (length items-1) current_selection'
+    case ch of
+      'a' | current_selection > 0 -> menuState .= MenuSelection (current_selection-1)
+      'z' | current_selection < length items-1 -> menuState .= MenuSelection (current_selection+1)
+      ' ' -> modify attemptPurchase
+      _ -> return ()
 
 move :: Monad m => Char -> GameMonad m ()
 move 'j' = moveDirection D2

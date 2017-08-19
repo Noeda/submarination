@@ -69,9 +69,9 @@ subLens level_lens coords@(V2 x y) action topo | x >= 0 && y >= 0 = case topo of
   Composition topo1 topo2 offset@(V2 ox oy) (V2 w h) | x < w && y < h ->
     let V2 tw1 th1 = subSize topo1
 
-     in if x < tw1 && y < th1 && execState (subLens (\_ -> identity) coords (\i -> put True >> pure i) topo1) False
-          then Composition <$> (self coords action topo1) <*> pure topo2 <*> pure offset <*> pure (V2 w h)
-          else Composition topo1 <$> (self (V2 (x-ox) (y-oy)) action topo2) <*> pure offset <*> pure (V2 w h)
+     in if x < tw1 && y < th1 && execState (subLens (const identity) coords (\i -> put True >> pure i) topo1) False
+          then Composition <$> self coords action topo1 <*> pure topo2 <*> pure offset <*> pure (V2 w h)
+          else Composition topo1 <$> self (V2 (x-ox) (y-oy)) action topo2 <*> pure offset <*> pure (V2 w h)
 
 
   _ -> pure topo
@@ -101,52 +101,50 @@ subSize topo = computeSubSize topo
 
 computeSubSize :: SubTopology -> V2 Int
 computeSubSize (Composition _ _ _ sz) = sz
-computeSubSize (StandardRoom{}) = V2 5 5
-computeSubSize (AirLock{}) = V2 3 3
-computeSubSize (Bridge{}) = V2 5 5
+computeSubSize StandardRoom{} = V2 5 5
+computeSubSize AirLock{} = V2 3 3
+computeSubSize Bridge{} = V2 5 5
 computeSubSize (Rotate90 inner) =
   let V2 w h = computeSubSize inner
    in V2 h w
 
+compose :: V2 Int -> SubTopology -> SubTopology -> SubTopology
+compose offset@(V2 ox oy) topo1 topo2 =
+  let V2 w h = computeSubSize topo1
+      V2 iw ih = computeSubSize topo2
+
+      topo1_x_max = w-1
+      topo1_y_max = h-1
+
+      topo2_x_max = ox+iw-1
+      topo2_y_max = oy+ih-1
+
+      rightest_extent = max topo2_x_max topo1_x_max
+      bottommost_extent = max topo2_y_max topo1_y_max
+
+   in Composition topo1 topo2 offset (V2 (rightest_extent+1) (bottommost_extent+1))
+
 composeHorizontally :: SubTopology -> SubTopology -> SubTopology
 composeHorizontally topo1 topo2 =
   let V2 w h = computeSubSize topo1
-      V2 iw ih = computeSubSize topo2
+      V2 _iw ih = computeSubSize topo2
 
       center_y = h `div` 2
       center_inner_y = ih `div` 2
 
-      offset@(V2 ox oy) = V2 (w-1) (center_y - center_inner_y)
+      offset = V2 (w-1) (center_y - center_inner_y)
 
-      topo1_x_max = w-1
-      topo1_y_max = h-1
-
-      topo2_x_max = ox+iw-1
-      topo2_y_max = oy+ih-1
-
-      rightest_extent = max topo2_x_max topo1_x_max
-      bottommost_extent = max topo2_y_max topo1_y_max
-
-   in Composition topo1 topo2 offset (V2 (rightest_extent+1) (bottommost_extent+1))
+   in compose offset topo1 topo2
 
 composeVertically :: SubTopology -> SubTopology -> SubTopology
 composeVertically topo1 topo2 =
   let V2 w h = computeSubSize topo1
-      V2 iw ih = computeSubSize topo2
+      V2 iw _ih = computeSubSize topo2
 
       center_x = w `div` 2
       center_inner_x = iw `div` 2
 
-      offset@(V2 ox oy) = V2 (center_x - center_inner_x) (h-1)
+      offset = V2 (center_x - center_inner_x) (h-1)
 
-      topo1_x_max = w-1
-      topo1_y_max = h-1
-
-      topo2_x_max = ox+iw-1
-      topo2_y_max = oy+ih-1
-
-      rightest_extent = max topo2_x_max topo1_x_max
-      bottommost_extent = max topo2_y_max topo1_y_max
-
-   in Composition topo1 topo2 offset (V2 (rightest_extent+1) (bottommost_extent+1))
+   in compose offset topo1 topo2
 
