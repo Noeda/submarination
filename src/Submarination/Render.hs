@@ -411,6 +411,13 @@ renderDragging = gr (^.player.playerDragging) >>= \case
   Just bulky_item -> do
     appendText 53 2 Vivid White Dull Black $ "Dragging: " <> itemName bulky_item Singular
 
+renderTurn :: GameMonadRoTerminal s ()
+renderTurn = do
+  current_turn <- gr (^.turn)
+
+  let turn_text = "T: " <> show current_turn
+  lift $ setText (80-textWidth turn_text) 0 Vivid White Dull Black turn_text
+
 renderSurfaceHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderSurfaceHud = do
   shells <- gr (^.player.playerShells)
@@ -421,6 +428,7 @@ renderSurfaceHud = do
   renderStatuses
   renderDragging
   renderItemPileHud
+  lift renderTurn
 
   menu_selection <- gr currentMenuSelection
 

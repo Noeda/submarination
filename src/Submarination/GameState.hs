@@ -105,7 +105,7 @@ startGameState = GameState
                      , _playerShells = 1000
                      , _playerDragging = Nothing }
   , _menuState = NotInMenu
-  , _turn = 0
+  , _turn = 1
   , _levels = M.singleton 0 surfaceLevel
   , _sub = Sub { _subPosition = V2 23 (-2)
                , _topology = initial_sub_topo }
