@@ -29,7 +29,7 @@ foreign import javascript "$r = document.createElement('br');" make_br_element :
 foreign import javascript "$r = document.createElement('div');" make_div_element :: IO JSVal
 foreign import javascript "$1.appendChild($2)" append_child :: JSVal -> JSVal -> IO ()
 foreign import javascript unsafe "$1.textContent = $2" set_text_content :: JSVal -> JSString -> IO ()
-foreign import javascript unsafe "$1.style = $2" set_style :: JSVal -> JSString -> IO ()
+foreign import javascript unsafe "$1.style.cssText = $2" set_style :: JSVal -> JSString -> IO ()
 foreign import javascript "$r = document.getElementById('content')" get_content_div :: IO JSVal
 foreign import javascript "$1.addEventListener('keydown', $2);" attach_keydown_handler :: JSVal -> Callback (JSVal -> IO ()) -> IO ()
 foreign import javascript "$1.removeEventListener('keydown', $2);" detach_keydown_handler :: JSVal -> Callback (JSVal -> IO ()) -> IO ()
