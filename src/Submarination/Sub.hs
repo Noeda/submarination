@@ -6,6 +6,7 @@ module Submarination.Sub
   , bridge
   , composeHorizontally
   , composeVertically
+  , getLocationNameInSub
   , subCell
   , subCellP
   , subActiveMetadataAt
@@ -102,17 +103,38 @@ subLens level_lens coords@(V2 x y) action topo | x >= 0 && y >= 0 = case topo of
 subLens _ _ _ topo = pure topo
 {-# INLINE subLens #-}
 
+topologyName :: SubTopology -> Maybe Text
+topologyName Bridge{}         = Just "Bridge"
+topologyName AirLock{}        = Just "Airlock"
+topologyName StandardRoom{}   = Just "Standard Compartment"
+topologyName (Rotate90 inner) = topologyName inner
+topologyName _                = Nothing
+
+getLocationNameInSub :: V2 Int -> SubTopology -> Maybe Text
+getLocationNameInSub coords topo =
+  case getAtomTopologyAt' coords topo 1 of
+    Just (topo, True)  -> topologyName topo
+    Just (_topo, False) -> Just "Hatch"
+    _ -> Nothing
+
 getAtomTopologyAt :: V2 Int -> SubTopology -> Maybe SubTopology
-getAtomTopologyAt (V2 x y) (Composition topo1 topo2 (V2 ox oy) (V2 w h))
+getAtomTopologyAt coords topo = fst <$> getAtomTopologyAt' coords topo 0
+
+getAtomTopologyAt' :: V2 Int -> SubTopology -> Int -> Maybe (SubTopology, Bool)
+getAtomTopologyAt' (V2 x y) (Composition topo1 topo2 (V2 ox oy) (V2 w h)) threshold
   | x >= 0 && y >= 0 && x < w && y < h =
-      getAtomTopologyAt (V2 x y) topo1 <|>
-      getAtomTopologyAt (V2 (x-ox) (y-oy)) topo2
+      getAtomTopologyAt' (V2 x y) topo1 threshold <|>
+      getAtomTopologyAt' (V2 (x-ox) (y-oy)) topo2 threshold
   | otherwise = Nothing
-getAtomTopologyAt (V2 x y) (Rotate90 inner) =
-  getAtomTopologyAt (V2 y x) inner
-getAtomTopologyAt coord topo =
+getAtomTopologyAt' (V2 x y) (Rotate90 inner) threshold =
+  getAtomTopologyAt' (V2 y x) inner threshold
+getAtomTopologyAt' coord@(V2 x y) topo threshold = do
+  let V2 w h = subSize topo
   case firstOf (subCellP coord) topo of
-    Just{} -> Just topo
+    Just{} ->
+      return $ if x >= threshold && y >= threshold && x < w-threshold && y < h-threshold
+        then (topo, True)
+        else (topo, False)
     _ -> Nothing
 
 subActiveMetadataAt :: V2 Int -> Traversal' SubTopology (Maybe LevelActiveMetadata)

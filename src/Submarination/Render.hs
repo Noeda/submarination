@@ -39,6 +39,9 @@ data UpdateRequestState
 
 type UpdateRequestStateKnob = TVar UpdateRequestState
 
+losDistance :: Int
+losDistance = 11
+
 newUpdateRequestKnob :: MonadIO m => m UpdateRequestStateKnob
 newUpdateRequestKnob = liftIO $ newTVarIO NoUpdates
 
@@ -156,7 +159,7 @@ renderCreatures = do
     let (rx, ry) = (cx-px, cy-py)
 
     -- Only render creature if it's in renderable area
-    when (rx >= -11 && rx <= 11 && ry >= -11 && ry <= 11) $ do
+    when (rx >= -losDistance && rx <= losDistance && ry >= -losDistance && ry <= losDistance) $ do
       -- position in terminal
       let (tx, ty) = ((+) rx *** (+) ry) mapMiddleOnTerminal
 
@@ -208,7 +211,7 @@ renderSub monotonic_time_ns = do
 
   topo <- gr (^.sub.topology)
 
-  lift $ for_ [V2 x y | x <- [px-11..px+11], y <- [py-11..py+11]] $ \(V2 lx ly) -> do
+  lift $ for_ [V2 x y | x <- [px-losDistance..px+losDistance], y <- [py-losDistance..py+losDistance]] $ \(V2 lx ly) -> do
     let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) mapMiddleOnTerminal
     when (lx >= sx && ly >= sy && lx < sx+sw && ly < sy+sh) $
       case subCell topo (V2 (lx-sx) (ly-sy)) of
@@ -225,7 +228,7 @@ renderSurface monotonic_time_ns = do
   -- Render surface relative to player
   V2 px py <- view $ player.playerPosition
 
-  lift $ for_ [V2 x y | x <- [px-11..px+11], y <- [py-11..py+11]] $ \levelcoord@(V2 lx ly) -> do
+  lift $ for_ [V2 x y | x <- [px-losDistance..px+losDistance], y <- [py-losDistance..py+losDistance]] $ \levelcoord@(V2 lx ly) -> do
     let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) mapMiddleOnTerminal
     -- What is the cell we should render?
         level_feature = level^.cellAt levelcoord
@@ -268,10 +271,21 @@ renderBar label value max_value x y bar_intensity bar_color unbar_intensity unba
 
 renderHud :: Integer -> GameMonadRoTerminal s ()
 renderHud _monotonic_time_ns = do
-  -- Title
-  title <- gr currentAreaName
-  let title_w = textWidth title
-  lift $ setText (40-(title_w `div` 2)) 0 Vivid White Dull Black title
+
+  -- The name of the section of submarine you are in
+  player_pos <- gr (^.player.playerPosition)
+  sub_pos <- gr (^.sub.subPosition)
+  sub_topo <- gr (^.sub.topology)
+
+  case getLocationNameInSub (player_pos - sub_pos) sub_topo of
+    Just sub_section_name -> do
+      let sub_title = "+++ " <> sub_section_name <> " +++"
+      let sub_title_w = textWidth sub_title
+      lift $ setText (40-(sub_title_w `div` 2)) 0 Vivid White Dull Black sub_title
+    Nothing -> do
+      title <- gr currentAreaName
+      let title_w = textWidth title
+      lift $ setText (40-(title_w `div` 2)) 0 Vivid White Dull Black title
 
   -- Health
   hp     <- gr (^.player.playerHealth)
