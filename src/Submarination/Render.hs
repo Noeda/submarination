@@ -378,12 +378,31 @@ renderItemPileHud = do
     appendText 54 0 Vivid Green Dull Black ","
     appendText 66 2 Vivid Green Dull Black "g"
 
+statusAppearance :: Status -> (ColorIntensity, Color, ColorIntensity, Color)
+statusAppearance Slow = (Dull, Red, Dull, Black)
+
+renderStatuses :: VerticalBoxRender (GameMonadRoTerminal s) ()
+renderStatuses = do
+  statuses <- gr currentStatuses
+  unless (null statuses) $ do
+    flip evalStateT 53 $ for_ statuses $ \status -> do
+      let status_name = statusName status
+          (fintensity, fcolor, bintensity, bcolor) = statusAppearance status
+      x <- get
+
+      let status_width = textWidth status_name
+
+      lift $ appendText x 0 fintensity fcolor bintensity bcolor status_name
+      put (x+status_width+1)
+
 renderSurfaceHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderSurfaceHud = do
   shells <- gr (^.player.playerShells)
 
   appendText 53 0 Vivid Yellow Dull Black "$"
   appendText 54 2 Vivid White Dull Black $ ": " <> show shells
+
+  renderStatuses
 
   renderItemPileHud
 

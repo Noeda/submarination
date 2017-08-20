@@ -6,6 +6,7 @@ import Data.Data
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.List ( (!!) )
+import qualified Data.Set as S
 import Linear.V2
 import Protolude hiding ( (&) )
 
@@ -40,8 +41,16 @@ data Player = Player
   , _playerMaximumHealth :: !Int
   , _playerHealth        :: !Int
   , _playerOxygen        :: !Int
-  , _playerShells        :: !Int }
+  , _playerShells        :: !Int
+  , _playerDragging      :: !(Maybe Item) }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+
+data Status
+  = Slow
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
+
+statusName :: Status -> Text
+statusName Slow = "Slow"
 
 data Direction
   = D4
@@ -92,7 +101,8 @@ startGameState = GameState
                      , _playerMaximumHealth = 100
                      , _playerHealth = 100
                      , _playerOxygen = 100
-                     , _playerShells = 1000 }
+                     , _playerShells = 1000
+                     , _playerDragging = Nothing }
   , _menuState = NotInMenu
   , _turn = 0
   , _levels = M.singleton 0 surfaceLevel
@@ -111,6 +121,13 @@ startGameState = GameState
         airLock
 
   placeStorageBox = subItemsP (V2 6 1) .~ [StorageBox []]
+
+currentStatuses :: GameState -> S.Set Status
+currentStatuses gs =
+  if isSlow gs then S.singleton Slow else S.empty
+
+isSlow :: GameState -> Bool
+isSlow gs = isJust $ gs^.player.playerDragging
 
 currentMenuSelection :: GameState -> Int
 currentMenuSelection gs = case gs^.menuState of
@@ -202,6 +219,7 @@ moveDirection direction = do
     levelActiveMetadataAt new_playerpos .= (Just $ HatchAutoClose (current_turn+5))
     advanceTurn
 
+
   notHatch lcell new_playerpos = do
     -- Can I walk there?
     let walkable = isWalkable lcell
@@ -211,6 +229,12 @@ moveDirection direction = do
       occupied <- gm $ isOccupied new_playerpos
       unless occupied $ do
         player.playerPosition .= new_playerpos
+
+        -- Moving takes extra time if we are slow
+        slow <- gm isSlow
+        when slow $
+          advanceTurn
+
         advanceTurn
 
 surfaceLevel :: Level
