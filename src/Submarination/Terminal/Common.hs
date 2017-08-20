@@ -112,24 +112,24 @@ clear = MutateTerminal $ do
     lift $ AM.writeArray cells' (x, y) (Cell Dull White Dull Black ' ')
 {-# INLINE clear #-}
 
-setWrappedText :: forall s. Int -> Int -> Int -> ColorIntensity -> Color -> ColorIntensity -> Color -> Text -> MutateTerminal s ()
+setWrappedText :: forall s. Int -> Int -> Int -> ColorIntensity -> Color -> ColorIntensity -> Color -> Text -> MutateTerminal s Int
 setWrappedText ox oy w fintensity fcolor bintensity bcolor txt =
-  go ox oy txt_words
+  go ox oy txt_words 0
  where
   txt_words = T.words txt
 
-  go :: Int -> Int -> [Text] -> MutateTerminal s ()
-  go _x _y [] = return ()
+  go :: Int -> Int -> [Text] -> Int -> MutateTerminal s Int
+  go _x _y [] height = return height
 
-  go x y (word:rest) =
+  go x y (word:rest) height =
     if | x+T.length word > ox+w && T.length word <= w
-         -> go ox (y+1) (word:rest)
+         -> go ox (y+1) (word:rest) (height+1)
        | T.length word > w && x == ox
          -> do setText x y fintensity fcolor bintensity bcolor word
-               go ox (y+1) rest
+               go ox (y+1) rest (height+1)
        | otherwise
          -> do setText x y fintensity fcolor bintensity bcolor word
-               go (x+T.length word+1) y rest
+               go (x+T.length word+1) y rest height
 
 setText :: Int -> Int -> ColorIntensity -> Color -> ColorIntensity -> Color -> Text -> MutateTerminal s ()
 setText x y fintensity fcolor bintensity bcolor txt = go 0

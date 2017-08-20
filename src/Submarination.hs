@@ -50,7 +50,37 @@ startGame knob = do
     menu_ch | menu_ch `elem` ("az " :: String) -> do
       menu menu_ch
       startGame knob
+    'g' -> do
+      drag
+      startGame knob
     _ -> startGame knob
+
+drag :: Monad m => GameMonad m ()
+drag = use (player.playerDragging) >>= \case
+  Nothing -> startDragging
+  Just bulky_item -> stopDragging bulky_item
+ where
+  stopDragging bulky_item = do
+    -- Can't stop if there is already a bulky item here
+    player_pos <- gm (^.player.playerPosition)
+    use (levelBulkyItemAt player_pos) >>= \case
+      Nothing -> do
+        levelBulkyItemAt player_pos .= Just bulky_item
+        player.playerDragging .= Nothing
+
+        advanceTurn
+
+      Just _existing_bulky_item -> return ()
+
+  startDragging = do
+    player_pos <- gm (^.player.playerPosition)
+    use (levelBulkyItemAt player_pos) >>= \case
+      Nothing -> return ()
+      Just bulky_item -> do
+        levelBulkyItemAt player_pos .= Nothing
+        player.playerDragging .= Just bulky_item
+
+        advanceTurn
 
 menu :: Monad m => Char -> GameMonad m ()
 menu ch = gm getCurrentVendor >>= \case

@@ -321,6 +321,13 @@ appendText x skip fintensity fcolor bintensity bcolor txt = VerticalBoxRender $ 
 
   lift $ lift $ setText x y fintensity fcolor bintensity bcolor txt
 
+appendWrappedText :: Int -> Int -> Int -> ColorIntensity -> Color -> ColorIntensity -> Color -> Text -> VerticalBoxRender (GameMonadRoTerminal s) ()
+appendWrappedText x skip max_width fintensity fcolor bintensity bcolor txt = VerticalBoxRender $ do
+  y <- get
+  height <- lift $ lift $ setWrappedText x y max_width fintensity fcolor bintensity bcolor txt
+
+  put (y+height+skip)
+
 renderHud :: Integer -> GameMonadRoTerminal s ()
 renderHud _monotonic_time_ns = do
 
@@ -395,6 +402,15 @@ renderStatuses = do
       lift $ appendText x 0 fintensity fcolor bintensity bcolor status_name
       put (x+status_width+1)
 
+    appendText 0 2 Vivid White Dull Black ""
+
+renderDragging :: VerticalBoxRender (GameMonadRoTerminal s) ()
+renderDragging = gr (^.player.playerDragging) >>= \case
+  Nothing -> return ()
+
+  Just bulky_item -> do
+    appendText 53 2 Vivid White Dull Black $ "Dragging: " <> itemName bulky_item Singular
+
 renderSurfaceHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderSurfaceHud = do
   shells <- gr (^.player.playerShells)
@@ -403,7 +419,7 @@ renderSurfaceHud = do
   appendText 54 2 Vivid White Dull Black $ ": " <> show shells
 
   renderStatuses
-
+  renderDragging
   renderItemPileHud
 
   menu_selection <- gr currentMenuSelection
@@ -411,22 +427,24 @@ renderSurfaceHud = do
   gr getCurrentVendor >>= \case
     Just vendor -> do
       let desc = vendorDescription vendor
-      lift2 $ setWrappedText 3 3 25 Dull White Dull Black desc
+      _ <- lift2 $ setWrappedText 3 1 25 Dull White Dull Black desc
 
       let items = zip [8..] (vendorItems vendor)
           last_y = length items + 8
 
-      lift2 $ for_ items $ \(y, item) -> do
+      for_ items $ \(y, item) -> do
         let selection_num = y-8
         if selection_num == menu_selection
-          then do setText 2 y Vivid Green Dull Black "➔"
-                  setText 4 y Vivid Blue Dull Black (itemName item Singular)
-                  setText 53 8 Vivid White Dull Black (itemName item Singular)
-                  setWrappedText 53 10 25 Dull White Dull Black (itemDescription item)
-          else setText 4 y Dull Blue Dull Black (itemName item Singular)
+          then do lift2 $ do
+                    setText 2 y Vivid Green Dull Black "➔"
+                    setText 4 y Vivid Blue Dull Black (itemName item Singular)
+                  appendText 53 2 Vivid White Dull Black (itemName item Singular)
+                  appendWrappedText 53 1 25 Dull White Dull Black (itemDescription item)
+          else lift2 $ setText 4 y Dull Blue Dull Black (itemName item Singular)
 
-        setText 24 y Vivid Yellow Dull Black "$"
-        setText 25 y Vivid White Dull Black $ show $ itemPrice item
+        lift2 $ do
+          setText 24 y Vivid Yellow Dull Black "$"
+          setText 25 y Vivid White Dull Black $ show $ itemPrice item
 
       lift2 $ do
         setText 2 (last_y+2) Dull White Dull Black "[ ] ↑ [ ] ↓"

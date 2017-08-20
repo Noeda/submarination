@@ -8,6 +8,7 @@ import Data.Maybe
 import Data.List ( (!!) )
 import qualified Data.Set as S
 import Linear.V2
+import qualified Prelude as E
 import Protolude hiding ( (&) )
 
 import Submarination.Creature
@@ -321,6 +322,28 @@ levelCellAt = subOrLevelLens cellAt subCellP
 levelItemsAt :: V2 Int -> Lens' GameState [Item]
 levelItemsAt = subOrLevelLens itemsAt subItemsP
 {-# INLINE levelItemsAt #-}
+
+levelBulkyItemAt :: V2 Int -> Lens' GameState (Maybe Item)
+levelBulkyItemAt coords = lens get_it set_it
+ where
+  get_it gs =
+    let items = gs^.levelItemsAt coords
+     in find isItemBulky items
+
+  -- some sanity checking
+  set_it _ (Just bulky_item) | not (isItemBulky bulky_item) = E.error "levelBulkyItemAt: Item is not bulky."
+  set_it gs (Just bulky_item) =
+    -- To satisfy lens laws, we must remove any existing bulky item from target
+    let items = gs^.levelItemsAt coords
+     in case find isItemBulky items of
+          Nothing -> gs & levelItemsAt coords .~ (bulky_item:items)
+          Just existing_item ->
+            let fitems = filter (/= existing_item) items
+             in gs & levelItemsAt coords .~ (bulky_item:fitems)
+
+  set_it gs Nothing = gs & levelItemsAt coords %~ filter (not . isItemBulky)
+
+{-# INLINEABLE levelBulkyItemAt #-}
 
 currentLevel :: Lens' GameState Level
 currentLevel = lens get_it set_it
