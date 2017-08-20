@@ -100,5 +100,8 @@ itemPrice (StorageBox inner_items) = 300 + sum (itemPrice <$> inner_items)
 -- these per square?
 isItemBulky :: Item -> Bool
 isItemBulky StorageBox{} = True
+isItemBulky Freezer = True
+isItemBulky Refrigerator = True
+isItemBulky Microwave = True
 isItemBulky _ = False
 
