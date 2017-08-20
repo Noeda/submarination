@@ -233,8 +233,7 @@ moveDirection direction = do
 
         -- Moving takes extra time if we are slow
         slow <- gm isSlow
-        when slow $
-          advanceTurn
+        when slow advanceTurn
 
         advanceTurn
 

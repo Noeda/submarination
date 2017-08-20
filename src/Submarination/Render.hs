@@ -408,7 +408,7 @@ renderDragging :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderDragging = gr (^.player.playerDragging) >>= \case
   Nothing -> return ()
 
-  Just bulky_item -> do
+  Just bulky_item ->
     appendText 53 2 Vivid White Dull Black $ "Dragging: " <> itemName bulky_item Singular
 
 renderTurn :: GameMonadRoTerminal s ()
