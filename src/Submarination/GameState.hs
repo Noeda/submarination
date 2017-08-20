@@ -90,7 +90,7 @@ startGameState = GameState
   , _turn = 0
   , _levels = M.singleton 0 surfaceLevel
   , _sub = Sub { _subPosition = V2 18 (-2)
-               , _topology = composeVertically (composeHorizontally bridge (composeHorizontally standardRoom standardRoom)) airLock }
+               , _topology = removeNonAirLockDoors $ composeVertically (composeHorizontally bridge (composeHorizontally standardRoom standardRoom)) airLock }
   , _depth  = 0 }
 
 currentMenuSelection :: GameState -> Int

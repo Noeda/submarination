@@ -1,5 +1,6 @@
 module Submarination.Sub
   ( SubTopology()
+  , removeNonAirLockDoors
   , standardRoom
   , airLock
   , bridge
@@ -26,6 +27,26 @@ data SubTopology
   | Composition !SubTopology !SubTopology !(V2 Int) (V2 Int)
   | Rotate90 !SubTopology
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+
+cardinalNeighboursOf :: V2 Int -> [V2 Int]
+cardinalNeighboursOf (V2 x y) =
+  [V2 (x-1) y
+  ,V2 (x+1) y
+  ,V2 x (y-1)
+  ,V2 x (y+1)]
+
+removeNonAirLockDoors :: SubTopology -> SubTopology
+removeNonAirLockDoors topo = flip execState topo $
+  for_ [0..w-1] $ \x -> for_ [0..h-1] $ \y ->
+    case subCell topo (V2 x y) of
+      Just _feat | Just AirLock{} <- getAtomTopologyAt (V2 x y) topo -> return ()
+
+      Just feat | feat == Hatch || feat == OpenHatch ->
+        when (any (isNothing . subCell topo) (cardinalNeighboursOf (V2 x y))) $
+          subCellP (V2 x y) .= Hull
+      _ -> return ()
+ where
+  V2 w h = subSize topo
 
 subLevels :: Traversal' SubTopology Level
 subLevels action (Rotate90 topo) = Rotate90 <$> subLevels action topo
@@ -81,6 +102,19 @@ subLens level_lens coords@(V2 x y) action topo | x >= 0 && y >= 0 = case topo of
 subLens _ _ _ topo = pure topo
 {-# INLINE subLens #-}
 
+getAtomTopologyAt :: V2 Int -> SubTopology -> Maybe SubTopology
+getAtomTopologyAt (V2 x y) (Composition topo1 topo2 (V2 ox oy) (V2 w h))
+  | x >= 0 && y >= 0 && x < w && y < h =
+      getAtomTopologyAt (V2 x y) topo1 <|>
+      getAtomTopologyAt (V2 (x-ox) (y-oy)) topo2
+  | otherwise = Nothing
+getAtomTopologyAt (V2 x y) (Rotate90 inner) =
+  getAtomTopologyAt (V2 y x) inner
+getAtomTopologyAt coord topo =
+  case firstOf (subCellP coord) topo of
+    Just{} -> Just topo
+    _ -> Nothing
+
 subActiveMetadataAt :: V2 Int -> Traversal' SubTopology (Maybe LevelActiveMetadata)
 subActiveMetadataAt = subLens activeMetadataAt
 {-# INLINE subActiveMetadataAt #-}
@@ -90,28 +124,22 @@ subCellP = subLens cellAt
 {-# INLINE subCellP #-}
 
 subCell :: SubTopology -> V2 Int -> Maybe LevelCell
-subCell topo coords = case topo^..subCellP coords of
-  [cell] -> Just cell
-  _ -> Nothing
+subCell topo coords = firstOf (subCellP coords) topo
 {-# INLINEABLE subCell #-}
 
 subSize :: SubTopology -> V2 Int
 subSize (Composition _ _ _ sz) = sz
-subSize topo = computeSubSize topo
-
-computeSubSize :: SubTopology -> V2 Int
-computeSubSize (Composition _ _ _ sz) = sz
-computeSubSize StandardRoom{} = V2 5 5
-computeSubSize AirLock{} = V2 3 3
-computeSubSize Bridge{} = V2 5 5
-computeSubSize (Rotate90 inner) =
-  let V2 w h = computeSubSize inner
+subSize StandardRoom{} = V2 5 5
+subSize AirLock{} = V2 3 3
+subSize Bridge{} = V2 5 5
+subSize (Rotate90 inner) =
+  let V2 w h = subSize inner
    in V2 h w
 
 compose :: V2 Int -> SubTopology -> SubTopology -> SubTopology
 compose offset@(V2 ox oy) topo1 topo2 =
-  let V2 w h = computeSubSize topo1
-      V2 iw ih = computeSubSize topo2
+  let V2 w h = subSize topo1
+      V2 iw ih = subSize topo2
 
       topo1_x_max = w-1
       topo1_y_max = h-1
@@ -126,8 +154,8 @@ compose offset@(V2 ox oy) topo1 topo2 =
 
 composeHorizontally :: SubTopology -> SubTopology -> SubTopology
 composeHorizontally topo1 topo2 =
-  let V2 w h = computeSubSize topo1
-      V2 _iw ih = computeSubSize topo2
+  let V2 w h = subSize topo1
+      V2 _iw ih = subSize topo2
 
       center_y = h `div` 2
       center_inner_y = ih `div` 2
@@ -138,8 +166,8 @@ composeHorizontally topo1 topo2 =
 
 composeVertically :: SubTopology -> SubTopology -> SubTopology
 composeVertically topo1 topo2 =
-  let V2 w h = computeSubSize topo1
-      V2 iw _ih = computeSubSize topo2
+  let V2 w h = subSize topo1
+      V2 iw _ih = subSize topo2
 
       center_x = w `div` 2
       center_inner_x = iw `div` 2
