@@ -45,19 +45,21 @@ library
   ghc-options:         -Wall -fno-warn-name-shadowing -O2
   default-language:    Haskell2010
   c-sources:           cbits/terminal.c
-  default-extensions:  OverloadedStrings
-                       DeriveGeneric
-                       DeriveDataTypeable
-                       NoImplicitPrelude
-                       TemplateHaskell
-                       GeneralizedNewtypeDeriving
-                       RankNTypes
+  default-extensions:  GeneralizedNewtypeDeriving
+                       MultiParamTypeClasses
+                       UndecidableInstances
                        ScopedTypeVariables
+                       DeriveDataTypeable
+                       FlexibleInstances
+                       NoImplicitPrelude
+                       OverloadedStrings
+                       FlexibleContexts
+                       TemplateHaskell
+                       DeriveGeneric
                        BangPatterns
                        LambdaCase
-                       FlexibleInstances
-                       FlexibleContexts
                        MultiWayIf
+                       RankNTypes
 
 executable submarination
   main-is:             Main.hs

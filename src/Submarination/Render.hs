@@ -10,8 +10,9 @@ module Submarination.Render
   where
 
 import Control.Arrow ( (***) )
-import Control.Lens
+import Control.Lens hiding ( Level )
 import Control.Concurrent.STM
+import Control.Monad.Trans
 import Data.Data
 import qualified Data.Text as T
 import Linear.V2
@@ -132,7 +133,7 @@ renderGameState' monotonic_time_ns = do
   lift $ mutateTerminalStateM $ do
     clear
 
-    let rendering = do renderLevel monotonic_time_ns
+    let rendering = do renderCurrentLevel monotonic_time_ns
                        renderSub monotonic_time_ns
                        renderCreatures
                        renderPlayer
@@ -140,7 +141,7 @@ renderGameState' monotonic_time_ns = do
 
     runReaderT rendering game_state
 
-type GameMonadRoTerminal s a = GameMonadRo (MutateTerminal s) a
+type GameMonadRoTerminal s = GameMonadRo (MutateTerminal s)
 
 creatureToAppearance :: Creature -> Cell
 creatureToAppearance creature = case creature of
@@ -148,6 +149,22 @@ creatureToAppearance creature = case creature of
   AmmoVendor     -> Cell Vivid White Dull Yellow '@'
   MaterialVendor -> Cell Vivid White Dull Yellow '@'
   ToolVendor     -> Cell Vivid White Dull Yellow 'O'
+
+itemToAppearance :: Item -> Cell
+itemToAppearance SardineTin      = Cell Dull Cyan Dull Black '%'
+itemToAppearance Poylent         = Cell Vivid Cyan Dull Black '%'
+itemToAppearance Chicken         = Cell Vivid Red Dull Black '%'
+itemToAppearance Potato          = Cell Vivid Yellow Dull Black '%'
+itemToAppearance Whiskey         = Cell Dull Yellow Dull Black '!'
+itemToAppearance Freezer         = Cell Vivid Cyan Dull Black '■'
+itemToAppearance Refrigerator    = Cell Dull Cyan Dull Black '■'
+itemToAppearance Microwave       = Cell Vivid White Dull Black '■'
+itemToAppearance (StorageBox []) = Cell Dull White Dull Black '±'
+itemToAppearance StorageBox{}    = Cell Dull White Dull Black '≡'
+
+reverseAppearance :: Cell -> Cell
+reverseAppearance (Cell fintensity fcolor bintensity bcolor ch) =
+  Cell bintensity bcolor fintensity fcolor ch
 
 renderCreatures :: GameMonadRoTerminal s ()
 renderCreatures = do
@@ -165,10 +182,11 @@ renderCreatures = do
 
       setCell' tx ty (creatureToAppearance creature)
 
-renderLevel :: Integer -> GameMonadRoTerminal s ()
-renderLevel monotonic_time_ns = gr isOnSurface >>= \case
-  True -> renderSurface monotonic_time_ns
-  False -> renderAbyss
+renderCurrentLevel :: Integer -> GameMonadRoTerminal s ()
+renderCurrentLevel monotonic_time_ns = do
+  lvl <- gr (^.currentLevel)
+  playerpos <- gr (^.player.playerPosition)
+  renderLevel monotonic_time_ns lvl playerpos
 
 levelFeatureToAppearance :: LevelCell -> Double -> Int -> Int -> Cell
 levelFeatureToAppearance lcell monotonic_time x y = case lcell of
@@ -213,35 +231,42 @@ renderSub monotonic_time_ns = do
 
   lift $ for_ [V2 x y | x <- [px-losDistance..px+losDistance], y <- [py-losDistance..py+losDistance]] $ \(V2 lx ly) -> do
     let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) mapMiddleOnTerminal
-    when (lx >= sx && ly >= sy && lx < sx+sw && ly < sy+sh) $
-      case subCell topo (V2 (lx-sx) (ly-sy)) of
+    when (lx >= sx && ly >= sy && lx < sx+sw && ly < sy+sh) $ do
+      let subcoords = V2 (lx-sx) (ly-sy)
+      case subCell topo subcoords of
         Nothing -> return ()
-        Just subcell ->
-          uncurry setCell' terminalcoord (levelFeatureToAppearance subcell monotonic_time sx sy)
+        Just subcell -> do
+          let render_at = uncurry setCell' terminalcoord
+          render_at $ levelFeatureToAppearance subcell monotonic_time sx sy
+
+          for_ (subItems topo subcoords) $ \items ->
+            renderItemPile render_at items
  where
   monotonic_time = fromIntegral (monotonic_time_ns `div` 1000000) :: Double
 
-renderSurface :: Integer -> GameMonadRoTerminal s ()
-renderSurface monotonic_time_ns = do
-  level <- gr (^.currentLevel)
+renderItemPile :: Monad m => (Cell -> m ()) -> [Item] -> m ()
+renderItemPile _action [] = return ()
+renderItemPile action [single_item] =
+  action $ itemToAppearance single_item
+renderItemPile action (first_item:_rest) =
+  action $ reverseAppearance $ itemToAppearance first_item
 
-  -- Render surface relative to player
-  V2 px py <- view $ player.playerPosition
-
-  lift $ for_ [V2 x y | x <- [px-losDistance..px+losDistance], y <- [py-losDistance..py+losDistance]] $ \levelcoord@(V2 lx ly) -> do
-    let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) mapMiddleOnTerminal
+renderLevel :: Integer -> Level -> V2 Int -> GameMonadRoTerminal s ()
+renderLevel monotonic_time_ns level (V2 ox oy) =
+  lift $ for_ [V2 x y | x <- [ox-losDistance..ox+losDistance], y <- [oy-losDistance..oy+losDistance]] $ \levelcoord@(V2 lx ly) -> do
+    let terminalcoord = ((+) (lx - ox) *** (+) (ly - oy)) mapMiddleOnTerminal
     -- What is the cell we should render?
         level_feature = level^.cellAt levelcoord
 
     -- Now...actually instruct the terminal to render a symbol for this level
     -- feature.
 
-    uncurry setCell' terminalcoord (levelFeatureToAppearance level_feature monotonic_time lx ly)
+    let render_at = uncurry setCell' terminalcoord
+
+    render_at $ levelFeatureToAppearance level_feature monotonic_time lx ly
+    renderItemPile render_at (level^.itemsAt levelcoord)
  where
   monotonic_time = fromIntegral (monotonic_time_ns `div` 1000000) :: Double
-
-renderAbyss :: Monad m => GameMonadRo m ()
-renderAbyss = return ()
 
 renderPlayer :: GameMonadRoTerminal s ()
 renderPlayer = lift $
@@ -269,6 +294,33 @@ renderBar label value max_value x y bar_intensity bar_color unbar_intensity unba
     setText (x+13) y bar_intensity bar_color unbar_intensity unbar_color (bar_txt_head <> bar_txt_tail)
     setText x y Vivid White Dull Black $ label <> show value <> "/" <> show max_value
 
+-- | Type that keeps track of Y position while we render stuff on hud. This
+-- pushes text below if there are messages or whatever. Monad transformer.
+newtype VerticalBoxRender m a = VerticalBoxRender (StateT Int m a)
+  deriving ( Functor, Applicative, Monad )
+
+instance MonadTrans VerticalBoxRender where
+  lift action = VerticalBoxRender $ lift action
+
+instance MonadReader r m => MonadReader r (VerticalBoxRender m) where
+  ask = VerticalBoxRender $ lift ask
+  local mod (VerticalBoxRender action) = VerticalBoxRender $ do
+    st <- get
+    (result, new_st) <- lift $ local mod (runStateT action st)
+    put new_st
+    return result
+
+runVerticalBoxRender :: Monad m => Int -> VerticalBoxRender m a -> m a
+runVerticalBoxRender y_start (VerticalBoxRender stateful) =
+  evalStateT stateful y_start
+
+appendText :: Int -> Int -> ColorIntensity -> Color -> ColorIntensity -> Color -> Text -> VerticalBoxRender (GameMonadRoTerminal s) ()
+appendText x skip fintensity fcolor bintensity bcolor txt = VerticalBoxRender $ do
+  y <- get
+  put (y+skip)
+
+  lift $ lift $ setText x y fintensity fcolor bintensity bcolor txt
+
 renderHud :: Integer -> GameMonadRoTerminal s ()
 renderHud _monotonic_time_ns = do
 
@@ -287,7 +339,7 @@ renderHud _monotonic_time_ns = do
       let title_w = textWidth title
       lift $ setText (40-(title_w `div` 2)) 0 Vivid White Dull Black title
 
-  -- Health
+  -- Health/Oxygen
   hp     <- gr (^.player.playerHealth)
   max_hp <- gr (^.player.playerMaximumHealth)
 
@@ -297,28 +349,55 @@ renderHud _monotonic_time_ns = do
   renderBar "HP: " hp max_hp 53 2 Vivid Red Dull Blue
   renderBar "O₂: " oxygen max_oxygen 53 4 Vivid Cyan Dull Blue
 
-  on_surface <- gr isOnSurface
-  when on_surface renderSurfaceHud
+  runVerticalBoxRender 6 $ do
+    on_surface <- gr isOnSurface
+    when on_surface renderSurfaceHud
 
-renderSurfaceHud :: GameMonadRoTerminal s ()
+renderItemPileHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
+renderItemPileHud = do
+  player_pos <- gr (^.player.playerPosition)
+  items <- gr (^.levelItemsAt player_pos)
+  case items of
+    [] -> return ()
+    [_single_item] ->
+      appendText 53 2 Dull White Dull Black "There is one item here:"
+    lst ->
+      appendText 53 2 Dull White Dull Black $ "There are " <> show (length lst) <> " items here:"
+
+  let grouped = groupItems items
+
+  ifor_ grouped $ \item count ->
+    if count > 1
+      then appendText 53 1 Dull White Dull Black $ show count <> " " <> itemName item Many
+      else appendText 53 1 Dull White Dull Black $ itemName item Singular
+
+  appendText 53 1 Dull White Dull Black ""
+
+  unless (null items) $ do
+    appendText 53 0 Dull White Dull Black "[ ] Pick up [ ] Drag"
+    appendText 54 0 Vivid Green Dull Black ","
+    appendText 66 2 Vivid Green Dull Black "g"
+
+renderSurfaceHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderSurfaceHud = do
   shells <- gr (^.player.playerShells)
 
-  lift $ do
-    setText 53 6 Vivid Yellow Dull Black "$"
-    setText 54 6 Vivid White Dull Black $ ": " <> show shells
+  appendText 53 0 Vivid Yellow Dull Black "$"
+  appendText 54 2 Vivid White Dull Black $ ": " <> show shells
+
+  renderItemPileHud
 
   menu_selection <- gr currentMenuSelection
 
   gr getCurrentVendor >>= \case
     Just vendor -> do
       let desc = vendorDescription vendor
-      lift $ setWrappedText 3 3 25 Dull White Dull Black desc
+      lift2 $ setWrappedText 3 3 25 Dull White Dull Black desc
 
       let items = zip [8..] (vendorItems vendor)
           last_y = length items + 8
 
-      lift $ for_ items $ \(y, item) -> do
+      lift2 $ for_ items $ \(y, item) -> do
         let selection_num = y-8
         if selection_num == menu_selection
           then do setText 2 y Vivid Green Dull Black "➔"
@@ -330,8 +409,14 @@ renderSurfaceHud = do
         setText 24 y Vivid Yellow Dull Black "$"
         setText 25 y Vivid White Dull Black $ show $ itemPrice item
 
-      lift $ setText 2 (last_y+2) Dull White Dull Black "[A] ↑ [Z] ↓"
-      lift $ setText 2 (last_y+3) Dull White Dull Black "[Space] Purchase"
+      lift2 $ do
+        setText 2 (last_y+2) Dull White Dull Black "[ ] ↑ [ ] ↓"
+        setText 2 (last_y+3) Dull White Dull Black "[     ] Purchase"
+        setText 3 (last_y+2) Vivid Green Dull Black "A"
+        setText 9 (last_y+2) Vivid Green Dull Black "Z"
+        setText 3 (last_y+3) Vivid Green Dull Black "SPACE"
 
     _ -> return ()
+ where
+  lift2 = lift . lift
 

@@ -6,9 +6,13 @@ module Submarination.Sub
   , bridge
   , composeHorizontally
   , composeVertically
+  , composeHorizontally'
+  , composeVertically'
   , getLocationNameInSub
   , subCell
   , subCellP
+  , subItems
+  , subItemsP
   , subActiveMetadataAt
   , subSize
   , subLevels )
@@ -17,8 +21,10 @@ module Submarination.Sub
 import Control.Lens hiding ( Level )
 import Data.Data
 import Linear.V2
+import qualified Prelude as E
 import Protolude
 
+import Submarination.Item
 import Submarination.Level
 
 data SubTopology
@@ -141,6 +147,10 @@ subActiveMetadataAt :: V2 Int -> Traversal' SubTopology (Maybe LevelActiveMetada
 subActiveMetadataAt = subLens activeMetadataAt
 {-# INLINE subActiveMetadataAt #-}
 
+subItemsP :: V2 Int -> Traversal' SubTopology [Item]
+subItemsP = subLens itemsAt
+{-# INLINE subItemsP #-}
+
 subCellP :: V2 Int -> Traversal' SubTopology LevelCell
 subCellP = subLens cellAt
 {-# INLINE subCellP #-}
@@ -148,6 +158,10 @@ subCellP = subLens cellAt
 subCell :: SubTopology -> V2 Int -> Maybe LevelCell
 subCell topo coords = firstOf (subCellP coords) topo
 {-# INLINEABLE subCell #-}
+
+subItems :: SubTopology -> V2 Int -> Maybe [Item]
+subItems topo coords = firstOf (subItemsP coords) topo
+{-# INLINE subItems #-}
 
 subSize :: SubTopology -> V2 Int
 subSize (Composition _ _ _ sz) = sz
@@ -173,6 +187,18 @@ compose offset@(V2 ox oy) topo1 topo2 =
       bottommost_extent = max topo2_y_max topo1_y_max
 
    in Composition topo1 topo2 offset (V2 (rightest_extent+1) (bottommost_extent+1))
+
+composeHorizontally' :: [SubTopology] -> SubTopology
+composeHorizontally' [] = E.error "composeHorizontally': must pass at least one topology."
+composeHorizontally' [topo] = topo
+composeHorizontally' (topo1:rest) =
+  composeHorizontally topo1 (composeHorizontally' rest)
+
+composeVertically' :: [SubTopology] -> SubTopology
+composeVertically' [] = E.error "composeVertically': must pass at least one topology."
+composeVertically' [topo] = topo
+composeVertically' (topo1:rest) =
+  composeVertically topo1 (composeVertically' rest)
 
 composeHorizontally :: SubTopology -> SubTopology -> SubTopology
 composeHorizontally topo1 topo2 =

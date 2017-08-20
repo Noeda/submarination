@@ -2,12 +2,17 @@ module Submarination.Item
   ( Item(..)
   , Plural(..)
 
+  , isItemBulky
+
   , itemName
   , itemDescription
-  , itemPrice )
+  , itemPrice
+  , groupItems )
   where
 
+import Control.Lens
 import Data.Data
+import qualified Data.Map.Strict as M
 import Protolude
 
 data Item
@@ -19,30 +24,40 @@ data Item
   | Refrigerator
   | Microwave
   | Whiskey
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
+  | StorageBox [Item]
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data Plural
   = Many
   | Singular
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
 
+groupItems :: [Item] -> M.Map Item Int
+groupItems = foldr folder M.empty
+ where
+  folder item = at item %~ Just . \case
+    Nothing -> 1
+    Just v  -> v+1
+
 itemName :: Item -> Plural -> Text
-itemName SardineTin   Singular     = "a tin of sardines"
-itemName SardineTin   Many         = "tins of sardines"
-itemName Poylent      Singular     = "a bottle of poylent"
-itemName Poylent      Many         = "bottles of poylent"
-itemName Chicken      Singular     = "a chicken"
-itemName Chicken      Many         = "chickens"
-itemName Potato       Singular     = "a potato"
-itemName Potato       Many         = "potatoes"
-itemName Freezer      Singular     = "a freezer"
-itemName Freezer      Many         = "freezers"
-itemName Refrigerator Singular     = "a refrigerator"
-itemName Refrigerator Many         = "refrigerators"
-itemName Microwave    Singular     = "a microwave"
-itemName Microwave    Many         = "microwaves"
-itemName Whiskey      Singular     = "a bottle of whiskey"
-itemName Whiskey      Many         = "bottles of whiskey"
+itemName SardineTin     Singular     = "a tin of sardines"
+itemName SardineTin     Many         = "tins of sardines"
+itemName Poylent        Singular     = "a bottle of poylent"
+itemName Poylent        Many         = "bottles of poylent"
+itemName Chicken        Singular     = "a chicken"
+itemName Chicken        Many         = "chickens"
+itemName Potato         Singular     = "a potato"
+itemName Potato         Many         = "potatoes"
+itemName Freezer        Singular     = "a freezer"
+itemName Freezer        Many         = "freezers"
+itemName Refrigerator   Singular     = "a refrigerator"
+itemName Refrigerator   Many         = "refrigerators"
+itemName Microwave      Singular     = "a microwave"
+itemName Microwave      Many         = "microwaves"
+itemName Whiskey        Singular     = "a bottle of whiskey"
+itemName Whiskey        Many         = "bottles of whiskey"
+itemName StorageBox{}   Singular     = "a storage box"
+itemName StorageBox{}   Many         = "storage boxes"
 
 itemDescription :: Item -> Text
 itemDescription SardineTin =
@@ -61,6 +76,14 @@ itemDescription Microwave =
   "Put food in. Press button. Wait until you hear a beep. Take food out."
 itemDescription Whiskey =
   "Love makes the world go around? Nonsense. Whiskey makes it go round twice as fast."
+itemDescription (StorageBox inner_items) =
+  "Storage boxes can store your items inside. They can keep their contents dry even if submerged in water." <>
+  if null inner_items
+    then ""
+    else let num_items = length inner_items
+          in if num_items > 1
+               then " This box contains " <> show (length inner_items) <> " items."
+               else " This box contains 1 item."
 
 itemPrice :: Item -> Int
 itemPrice SardineTin   = 10
@@ -71,4 +94,11 @@ itemPrice Freezer      = 200
 itemPrice Refrigerator = 150
 itemPrice Microwave    = 150
 itemPrice Whiskey      = 100
+itemPrice (StorageBox inner_items) = 300 + sum (itemPrice <$> inner_items)
+
+-- bulkiness = can I carry more than one and can there be more than one of
+-- these per square?
+isItemBulky :: Item -> Bool
+isItemBulky StorageBox{} = True
+isItemBulky _ = False
 

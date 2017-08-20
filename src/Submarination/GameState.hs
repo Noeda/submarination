@@ -57,6 +57,13 @@ makeLenses ''GameState
 makeLenses ''Player
 makeLenses ''Sub
 
+class HasGameState a where
+  gameState :: Lens' a GameState
+
+instance HasGameState GameState where
+  gameState = lens identity (\_ gs -> gs)
+  {-# INLINE gameState #-}
+
 allNeighbours :: V2 Int -> [V2 Int]
 allNeighbours (V2 x y) =
   [V2 (x-1) y
@@ -68,8 +75,8 @@ allNeighbours (V2 x y) =
   ,V2 (x-1) (y+1)
   ,V2 (x+1) (y-1)]
 
-type GameMonad m a = StateT GameState m a
-type GameMonadRo m a = ReaderT GameState m a
+type GameMonad m = StateT GameState m
+type GameMonadRo m = ReaderT GameState m
 
 instance MonadTerminalState m => MonadTerminalState (StateT GameState m) where
   getTerminal = lift getTerminal
@@ -89,9 +96,21 @@ startGameState = GameState
   , _menuState = NotInMenu
   , _turn = 0
   , _levels = M.singleton 0 surfaceLevel
-  , _sub = Sub { _subPosition = V2 18 (-2)
-               , _topology = removeNonAirLockDoors $ composeVertically (composeHorizontally bridge (composeHorizontally standardRoom standardRoom)) airLock }
+  , _sub = Sub { _subPosition = V2 23 (-2)
+               , _topology = initial_sub_topo }
   , _depth  = 0 }
+ where
+  initial_sub_topo =
+    placeStorageBox $
+    removeNonAirLockDoors $
+      composeVertically
+        (composeHorizontally'
+           [bridge
+           ,standardRoom
+           ,standardRoom])
+        airLock
+
+  placeStorageBox = subItemsP (V2 6 1) .~ [StorageBox []]
 
 currentMenuSelection :: GameState -> Int
 currentMenuSelection gs = case gs^.menuState of
@@ -114,10 +133,11 @@ gm action = do
   gs <- get
   return $ action gs
 
-gr :: Monad m => (GameState -> a) -> GameMonadRo m a
+gr :: (MonadReader r m, HasGameState r) => (GameState -> a) -> m a
 gr action = do
-  gs <- ask
-  return $ action gs
+  env <- ask
+  return $ action $ env^.gameState
+{-# INLINE gr #-}
 
 directionToDelta :: Direction -> V2 Int
 directionToDelta D2 = V2 0 1
@@ -273,6 +293,10 @@ levelActiveMetadataAt =
 levelCellAt :: V2 Int -> Lens' GameState LevelCell
 levelCellAt = subOrLevelLens cellAt subCellP
 {-# INLINE levelCellAt #-}
+
+levelItemsAt :: V2 Int -> Lens' GameState [Item]
+levelItemsAt = subOrLevelLens itemsAt subItemsP
+{-# INLINE levelItemsAt #-}
 
 currentLevel :: Lens' GameState Level
 currentLevel = lens get_it set_it

@@ -3,9 +3,11 @@ module Submarination.Level
   , LevelCell(..)
   , LevelActiveMetadata(..)
   , cellAt
+  , itemsAt
   , activeMetadataAt
   , defaultLevelCell
   , placeCreature
+  , placeItem
   , creatures
   , levelFromStrings
   , levelFromStringsPlacements
@@ -23,11 +25,13 @@ import Linear.V2
 import Protolude hiding ( (&) )
 
 import Submarination.Creature
+import Submarination.Item
 
 data Level = Level
   { _defaultLevelCell    :: !LevelCell
   , _levelCells          :: !(M.Map (V2 Int) LevelCell)
   , _levelActiveMetadata :: !(M.Map (V2 Int) LevelActiveMetadata)
+  , _levelItems          :: !(M.Map (V2 Int) [Item])
   , _creatures           :: !(M.Map (V2 Int) Creature) }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
@@ -90,6 +94,14 @@ activeMetadataAt coords = lens get_it set_it
   set_it level Nothing = level & levelActiveMetadata %~ M.delete coords
   set_it level (Just new_metadata) = level & levelActiveMetadata %~ M.insert coords new_metadata
 
+itemsAt :: V2 Int -> Lens' Level [Item]
+itemsAt coords = lens get_it set_it
+  where
+   get_it level       = fromMaybe [] $ M.lookup coords (level^.levelItems)
+
+   set_it level [] = level & levelItems.at coords .~ Nothing
+   set_it level items = level & levelItems.at coords .~ Just items
+
 cellAt :: V2 Int -> Lens' Level LevelCell
 cellAt coords = lens get_it set_it
  where
@@ -108,6 +120,12 @@ placeCreature :: Creature -> V2 Int -> Level -> Level
 placeCreature creature location =
   creatures %~ M.insert location creature
 
+placeItem :: Item -> V2 Int -> Level -> Level
+placeItem item location =
+  levelItems.at location %~ \case
+    Nothing -> Just [item]
+    Just items -> Just (item:items)
+
 levelFromStrings :: LevelCell -> [Text] -> Level
 levelFromStrings default_cell = levelFromStringsPlacements default_cell []
 
@@ -116,6 +134,7 @@ levelFromStringsPlacements default_cell settings strs =
   let (cells, integer_location_mapping) = toMapping strs
       base_level = Level { _defaultLevelCell    = default_cell
                          , _levelCells          = cells
+                         , _levelItems          = M.empty
                          , _creatures           = M.empty
                          , _levelActiveMetadata = M.empty }
 
