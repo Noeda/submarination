@@ -383,7 +383,7 @@ renderItemPileHud = do
   unless (null items) $ do
     appendText 53 0 Dull White Dull Black "[ ] Pick up [ ] Drag"
     appendText 54 0 Vivid Green Dull Black ","
-    appendText 66 2 Vivid Green Dull Black "g"
+    appendText 66 2 Vivid Green Dull Black "G"
 
 statusAppearance :: Status -> (ColorIntensity, Color, ColorIntensity, Color)
 statusAppearance Slow = (Dull, Red, Dull, Black)
@@ -418,6 +418,23 @@ renderTurn = do
   let turn_text = "T: " <> show current_turn
   lift $ setText (80-textWidth turn_text) 0 Vivid White Dull Black turn_text
 
+renderInventory :: VerticalBoxRender (GameMonadRoTerminal s) ()
+renderInventory = do
+  inventory <- gr (^.player.playerInventory)
+  let num_items = length inventory
+      show_inventory_key_thing = do
+        appendText 53 0 Dull White Dull Black "[ ] Inventory"
+        appendText 54 2 Vivid Green Dull Black "I"
+
+  if | num_items == 0
+       -> appendText 53 2 Vivid White Dull Black "Not carrying anything."
+     | num_items == 1
+       -> do appendText 53 2 Vivid White Dull Black "Carrying 1 item."
+             show_inventory_key_thing
+     | otherwise
+       -> do appendText 53 2 Vivid White Dull Black $ "Carrying " <> show num_items <> " items."
+             show_inventory_key_thing
+
 renderSurfaceHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderSurfaceHud = do
   shells <- gr (^.player.playerShells)
@@ -447,7 +464,7 @@ renderSurfaceHud = do
                     setText 2 y Vivid Green Dull Black "➔"
                     setText 4 y Vivid Blue Dull Black (itemName item Singular)
                   appendText 53 2 Vivid White Dull Black (itemName item Singular)
-                  appendWrappedText 53 1 25 Dull White Dull Black (itemDescription item)
+                  appendWrappedText 53 2 25 Dull White Dull Black (itemDescription item)
           else lift2 $ setText 4 y Dull Blue Dull Black (itemName item Singular)
 
         lift2 $ do
@@ -462,6 +479,8 @@ renderSurfaceHud = do
         setText 3 (last_y+3) Vivid Green Dull Black "SPACE"
 
     _ -> return ()
+
+  renderInventory
  where
   lift2 = lift . lift
 

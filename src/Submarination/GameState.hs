@@ -43,6 +43,7 @@ data Player = Player
   , _playerHealth        :: !Int
   , _playerOxygen        :: !Int
   , _playerShells        :: !Int
+  , _playerInventory     :: ![Item]
   , _playerDragging      :: !(Maybe Item) }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
@@ -103,6 +104,7 @@ startGameState = GameState
                      , _playerHealth = 100
                      , _playerOxygen = 100
                      , _playerShells = 1000
+                     , _playerInventory = []
                      , _playerDragging = Nothing }
   , _menuState = NotInMenu
   , _turn = 1
@@ -362,20 +364,44 @@ isOccupied coords gamestate =
 isOnSurface :: GameState -> Bool
 isOnSurface gs = gs^.depth == 0
 
+inventoryLimit :: Int
+inventoryLimit = 20
+
 runMaybeExcept :: Except a () -> Maybe a
 runMaybeExcept action =
   case runExcept action of
     Left value -> Just value
     _ -> Nothing
 
+addItemInventory :: Item -> Prism' GameState GameState
+addItemInventory item =
+  prism' identity $ \gs ->
+    if length (gs^.player.playerInventory) >= inventoryLimit
+      then Nothing
+      else Just $ gs & player.playerInventory %~ (item:)
+
 attemptPurchase :: GameState -> GameState
 attemptPurchase gs = fromMaybe gs $ do
   item_selection <- currentVendorItemSelection gs
-  let shells = gs^.player.playerShells
+  let playerpos = gs^.player.playerPosition
+      shells = gs^.player.playerShells
 
   guard (shells >= itemPrice item_selection)
 
-  return $ gs & player.playerShells -~ itemPrice item_selection
+  if isItemBulky item_selection
+    then do
+      -- Cannot buy bulky item if dragging something
+      guard (isNothing $ gs^.player.playerDragging)
+      -- Cannot buy bulky item if bulky item already on floor
+      guard (isNothing $ gs^.levelBulkyItemAt playerpos)
+
+      -- Put bulky item for dragging
+      return $ gs & (player.playerShells -~ itemPrice item_selection) .
+                    (player.playerDragging .~ Just item_selection)
+
+    else return $ case gs^?addItemInventory item_selection of
+           Nothing -> gs
+           Just new_gs -> new_gs & player.playerShells -~ itemPrice item_selection
 
 getCurrentVendor :: GameState -> Maybe Creature
 getCurrentVendor gs = runMaybeExcept $ do
