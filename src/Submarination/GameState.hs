@@ -154,6 +154,14 @@ currentVendorMenuSelection = lens get_it set_it
   set_it gs new_selection =
     gs & menuState.at VendorMenuSelection .~ new_selection
 
+currentInventoryMenuSelection :: Lens' GameState (Maybe Int)
+currentInventoryMenuSelection = lens get_it set_it
+ where
+  get_it gs =
+    M.lookup Inventory (gs^.menuState)
+  set_it gs new_selection =
+    gs & menuState.at Inventory .~ new_selection
+
 currentVendorItemSelection :: GameState -> Maybe Item
 currentVendorItemSelection gs = do
   vendor <- getCurrentVendor gs

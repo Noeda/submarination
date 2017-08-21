@@ -376,16 +376,30 @@ renderInventory :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderInventory = do
   renderInventorySummary 2 False
 
+  selection <- gr (^.currentInventoryMenuSelection)
+
   items <- gr (^.player.playerInventory.to groupItems)
 
-  ifor_ items $ \item count ->
+  for_ (zip [0..] (M.assocs items)) $ \(index, (item, count)) -> do
+    let fintensity = if Just index == selection
+                       then Vivid
+                       else Dull
+
+    when (Just index == selection) $ do
+      appendText 2 0 Vivid Green Dull Black "➔"
+      lift $ lift $ setText 53 6 Vivid White Dull Black $ itemName item Singular
+      void $ lift $ lift $ setWrappedText 53 8 25 Dull White Dull Black $ itemDescription item
+
     if count == 1
-      then appendText 2 1 Dull Yellow Dull Black $ itemName item Singular
-      else appendText 2 1 Dull Yellow Dull Black $ show count <> " " <> itemName item Many
+      then appendText 4 1 fintensity Yellow Dull Black $ itemName item Singular
+      else appendText 4 1 fintensity Yellow Dull Black $ show count <> " " <> itemName item Many
+      
   appendText 2 1 Dull Yellow Dull Black ""
 
-  appendText 2 0 Dull White Dull Black "[SPACE or I] Close inventory"
+  appendText 2 0 Dull White Dull Black "[SPACE or I] Close inventory [ ] ↑ [ ] ↓"
   appendText 3 0 Vivid Green Dull Black "SPACE or I"
+  appendText 32 0 Vivid Green Dull Black "A"
+  appendText 38 0 Vivid Green Dull Black "Z"
   appendText 9 2 Dull White Dull Black "or"
 
 renderItemPileHud :: VerticalBoxRender (GameMonadRoTerminal s) ()

@@ -10,6 +10,7 @@ import Prelude ( String )
 import Protolude hiding ( to )
 
 import Submarination.GameState
+import Submarination.Item
 import Submarination.Render
 import Submarination.Terminal
 import Submarination.Vendor
@@ -52,7 +53,10 @@ startGame knob = do
       move dir_ch
       startGame knob
     menu_ch | menu_ch `elem` ("az " :: String) && not in_inventory -> do
-      menu menu_ch
+      vendorMenu menu_ch
+      startGame knob
+    menu_ch | menu_ch `elem` ("az" :: String) && in_inventory -> do
+      inventoryMenu menu_ch
       startGame knob
     'g' | not in_inventory -> do
       drag
@@ -98,8 +102,21 @@ drag = use (player.playerDragging) >>= \case
 
         advanceTurn
 
-menu :: Monad m => Char -> GameMonad m ()
-menu ch = ((,) <$> gm getCurrentVendor <*> gm (^.currentVendorMenuSelection)) >>= \case
+inventoryMenu :: Monad m => Char -> GameMonad m ()
+inventoryMenu ch = gm (^.currentInventoryMenuSelection) >>= \case
+  Just menu_selection -> do
+    inventory <- gm (^.player.playerInventory)
+    let max_selection = M.size (groupItems inventory)-1
+        current_selection = max 0 $ min max_selection menu_selection
+    case ch of
+      'a' | current_selection > 0 -> currentInventoryMenuSelection .= (Just $ current_selection-1)
+      'z' | current_selection < max_selection -> currentInventoryMenuSelection .= (Just $ current_selection+1)
+      _ -> return ()
+
+  _ -> return ()
+
+vendorMenu :: Monad m => Char -> GameMonad m ()
+vendorMenu ch = ((,) <$> gm getCurrentVendor <*> gm (^.currentVendorMenuSelection)) >>= \case
   (Just vendor, Just current_selection') -> do
     let items = vendorItems vendor
         current_selection = max 0 $ min (length items-1) current_selection'
