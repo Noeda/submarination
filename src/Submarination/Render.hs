@@ -14,6 +14,7 @@ import Control.Lens hiding ( Level )
 import Control.Concurrent.STM
 import Control.Monad.Trans
 import Data.Data
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Linear.V2
 import Protolude hiding ( to )
@@ -130,13 +131,16 @@ renderGameState game_state monotonic_time_ns = runReaderT (renderGameState' mono
 renderGameState' :: MonadTerminalState m => Integer -> GameMonadRo m ()
 renderGameState' monotonic_time_ns = do
   game_state <- gr identity
+  in_inventory <- gr (^.menuState.to (Inventory `M.member`))
+
   lift $ mutateTerminalStateM $ do
     clear
 
-    let rendering = do renderCurrentLevel monotonic_time_ns
-                       renderSub monotonic_time_ns
-                       renderCreatures
-                       renderPlayer
+    let rendering = do unless in_inventory $ do
+                         renderCurrentLevel monotonic_time_ns
+                         renderSub monotonic_time_ns
+                         renderCreatures
+                         renderPlayer
                        renderHud monotonic_time_ns
 
     runReaderT rendering game_state
@@ -356,9 +360,33 @@ renderHud _monotonic_time_ns = do
   renderBar "HP: " hp max_hp 53 2 Vivid Red Dull Blue
   renderBar "O₂: " oxygen max_oxygen 53 4 Vivid Cyan Dull Blue
 
-  runVerticalBoxRender 6 $ do
-    on_surface <- gr isOnSurface
-    when on_surface renderSurfaceHud
+  renderTurn
+
+  in_inventory <- gr (^.menuState.to (Inventory `M.member`))
+  on_surface <- gr isOnSurface
+
+  if | in_inventory
+       -> runVerticalBoxRender 2 renderInventory
+     | on_surface
+       -> runVerticalBoxRender 6 renderSurfaceHud
+     | otherwise
+       -> return ()
+
+renderInventory :: VerticalBoxRender (GameMonadRoTerminal s) ()
+renderInventory = do
+  renderInventorySummary 2 False
+
+  items <- gr (^.player.playerInventory.to groupItems)
+
+  ifor_ items $ \item count ->
+    if count == 1
+      then appendText 2 1 Dull Yellow Dull Black $ itemName item Singular
+      else appendText 2 1 Dull Yellow Dull Black $ show count <> " " <> itemName item Many
+  appendText 2 1 Dull Yellow Dull Black ""
+
+  appendText 2 0 Dull White Dull Black "[SPACE or I] Close inventory"
+  appendText 3 0 Vivid Green Dull Black "SPACE or I"
+  appendText 9 2 Dull White Dull Black "or"
 
 renderItemPileHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderItemPileHud = do
@@ -418,21 +446,21 @@ renderTurn = do
   let turn_text = "T: " <> show current_turn
   lift $ setText (80-textWidth turn_text) 0 Vivid White Dull Black turn_text
 
-renderInventory :: VerticalBoxRender (GameMonadRoTerminal s) ()
-renderInventory = do
+renderInventorySummary :: Int -> Bool -> VerticalBoxRender (GameMonadRoTerminal s) ()
+renderInventorySummary x show_keys = do
   inventory <- gr (^.player.playerInventory)
   let num_items = length inventory
-      show_inventory_key_thing = do
-        appendText 53 0 Dull White Dull Black "[ ] Inventory"
-        appendText 54 2 Vivid Green Dull Black "I"
+      show_inventory_key_thing = when show_keys $ do
+        appendText x 0 Dull White Dull Black "[ ] Inventory"
+        appendText (x+1) 2 Vivid Green Dull Black "I"
 
   if | num_items == 0
-       -> appendText 53 2 Vivid White Dull Black "Not carrying anything."
+       -> appendText x 2 Vivid White Dull Black "Not carrying anything."
      | num_items == 1
-       -> do appendText 53 2 Vivid White Dull Black "Carrying 1 item."
+       -> do appendText x 2 Vivid White Dull Black "Carrying 1 item."
              show_inventory_key_thing
      | otherwise
-       -> do appendText 53 2 Vivid White Dull Black $ "Carrying " <> show num_items <> " items."
+       -> do appendText x 2 Vivid White Dull Black $ "Carrying " <> show num_items <> " items."
              show_inventory_key_thing
 
 renderSurfaceHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
@@ -445,12 +473,9 @@ renderSurfaceHud = do
   renderStatuses
   renderDragging
   renderItemPileHud
-  lift renderTurn
 
-  menu_selection <- gr currentMenuSelection
-
-  gr getCurrentVendor >>= \case
-    Just vendor -> do
+  ((,) <$> gr getCurrentVendor <*> gr (^.currentVendorMenuSelection)) >>= \case
+    (Just vendor, Just menu_selection) -> do
       let desc = vendorDescription vendor
       _ <- lift2 $ setWrappedText 3 1 25 Dull White Dull Black desc
 
@@ -480,7 +505,7 @@ renderSurfaceHud = do
 
     _ -> return ()
 
-  renderInventory
+  renderInventorySummary 53 True
  where
   lift2 = lift . lift
 

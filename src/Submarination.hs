@@ -5,8 +5,9 @@ module Submarination
   where
 
 import Control.Lens
+import qualified Data.Map.Strict as M
 import Prelude ( String )
-import Protolude
+import Protolude hiding ( to )
 
 import Submarination.GameState
 import Submarination.Render
@@ -36,24 +37,39 @@ splashScreen knob = do
 
 startGame :: MonadIO m => UpdateRequestStateKnob -> GameMonad m ()
 startGame knob = do
+  cycleGame
   game_state <- gm identity
   showGameState knob game_state
+
+  in_inventory <- gm (^.menuState.to (Inventory `M.member`))
 
   ch <- getInputChar
   case ch of
 #ifndef GHCJS_BROWSER
     'q' -> return ()
 #endif
-    dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) -> do
+    dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) && not in_inventory -> do
       move dir_ch
       startGame knob
-    menu_ch | menu_ch `elem` ("az " :: String) -> do
+    menu_ch | menu_ch `elem` ("az " :: String) && not in_inventory -> do
       menu menu_ch
       startGame knob
-    'g' -> do
+    'g' | not in_inventory -> do
       drag
       startGame knob
+    'i' -> do
+      inventory
+      startGame knob
+    ' ' | in_inventory -> do
+      inventory
+      startGame knob
     _ -> startGame knob
+
+inventory :: Monad m => GameMonad m ()
+inventory = menuState %= \menus ->
+  if Inventory `M.member` menus
+    then M.delete Inventory menus
+    else M.insert Inventory 0 menus
 
 drag :: Monad m => GameMonad m ()
 drag = use (player.playerDragging) >>= \case
@@ -83,17 +99,17 @@ drag = use (player.playerDragging) >>= \case
         advanceTurn
 
 menu :: Monad m => Char -> GameMonad m ()
-menu ch = gm getCurrentVendor >>= \case
-  Nothing -> return ()
-  Just vendor -> do
-    current_selection' <- gm currentMenuSelection
+menu ch = ((,) <$> gm getCurrentVendor <*> gm (^.currentVendorMenuSelection)) >>= \case
+  (Just vendor, Just current_selection') -> do
     let items = vendorItems vendor
         current_selection = max 0 $ min (length items-1) current_selection'
     case ch of
-      'a' | current_selection > 0 -> menuState .= MenuSelection (current_selection-1)
-      'z' | current_selection < length items-1 -> menuState .= MenuSelection (current_selection+1)
+      'a' | current_selection > 0 -> currentVendorMenuSelection .= (Just $ current_selection-1)
+      'z' | current_selection < length items-1 -> currentVendorMenuSelection .= (Just $ current_selection+1)
       ' ' -> modify attemptPurchase
       _ -> return ()
+
+  _ -> return ()
 
 move :: Monad m => Char -> GameMonad m ()
 move 'j' = moveDirection D2

@@ -5,7 +5,7 @@ import Control.Lens hiding ( Level, levels )
 import Data.Data
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.List ( (!!) )
+import Data.List ( (!!), delete )
 import qualified Data.Set as S
 import Linear.V2
 import qualified Prelude as E
@@ -19,8 +19,9 @@ import Submarination.Terminal
 import Submarination.Vendor
 
 data MenuState
-  = NotInMenu
-  | MenuSelection !Int
+  = VendorMenuSelection
+  | PickupMenuSelection
+  | Inventory
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data Sub = Sub
@@ -31,7 +32,7 @@ data Sub = Sub
 data GameState = GameState
   { _player    :: !Player
   , _sub       :: !Sub
-  , _menuState :: !MenuState
+  , _menuState :: !(M.Map MenuState Int)
   , _depth     :: !Int
   , _turn      :: !Int
   , _levels    :: !(M.Map Int Level) }
@@ -97,6 +98,19 @@ instance MonadTerminalState m => MonadTerminalState (ReaderT GameState m) where
   getTerminal = lift getTerminal
   putTerminal = lift . putTerminal
 
+data SelectGroundItemResult
+  = NoItems
+  | PickedUp !Item
+  | NeedItemMenu
+  deriving ( Eq, Ord, Show, Read, Data, Typeable, Generic )
+
+currentlySelectedGroundItem :: GameState -> SelectGroundItemResult
+currentlySelectedGroundItem gs =
+  case filter (not . isItemBulky) $ gs^.levelItemsAt (gs^.player.playerPosition) of
+    [single_item] -> PickedUp single_item
+    [] -> NoItems
+    _many_items -> NeedItemMenu
+
 startGameState :: GameState
 startGameState = GameState
   { _player = Player { _playerPosition = V2 15 8
@@ -106,7 +120,7 @@ startGameState = GameState
                      , _playerShells = 1000
                      , _playerInventory = []
                      , _playerDragging = Nothing }
-  , _menuState = NotInMenu
+  , _menuState = M.empty
   , _turn = 1
   , _levels = M.singleton 0 surfaceLevel
   , _sub = Sub { _subPosition = V2 23 (-2)
@@ -132,16 +146,20 @@ currentStatuses gs =
 isSlow :: GameState -> Bool
 isSlow gs = isJust $ gs^.player.playerDragging
 
-currentMenuSelection :: GameState -> Int
-currentMenuSelection gs = case gs^.menuState of
-  NotInMenu -> 0
-  MenuSelection selection -> selection
+currentVendorMenuSelection :: Lens' GameState (Maybe Int)
+currentVendorMenuSelection = lens get_it set_it
+ where
+  get_it gs = 
+    M.lookup VendorMenuSelection (gs^.menuState)
+  set_it gs new_selection =
+    gs & menuState.at VendorMenuSelection .~ new_selection
 
 currentVendorItemSelection :: GameState -> Maybe Item
 currentVendorItemSelection gs = do
   vendor <- getCurrentVendor gs
-  let current_selection' = currentMenuSelection gs
-      current_selection = max 0 $ min (length items-1) current_selection'
+  current_selection' <- gs^.currentVendorMenuSelection
+
+  let current_selection = max 0 $ min (length items-1) current_selection'
       items = vendorItems vendor
 
   guard (not $ null items)
@@ -380,6 +398,24 @@ addItemInventory item =
       then Nothing
       else Just $ gs & player.playerInventory %~ (item:)
 
+removeOneItemFromGround :: Item -> Prism' GameState GameState
+removeOneItemFromGround item =
+  prism' identity $ \gs ->
+    let items = gs^.levelItemsAt (gs^.player.playerPosition)
+     in case delete item items of
+          new_items | new_items /= items ->
+            Just $ gs & levelItemsAt (gs^.player.playerPosition) .~ new_items
+          _ -> Nothing
+
+attemptPickUpItemOrGoToMenu :: Prism' GameState GameState
+attemptPickUpItemOrGoToMenu =
+  prism' identity $ \gs ->
+    case currentlySelectedGroundItem gs of
+      PickedUp single_item ->
+        gs ^? removeOneItemFromGround single_item .
+              addItemInventory single_item
+      _ -> Nothing
+
 attemptPurchase :: GameState -> GameState
 attemptPurchase gs = fromMaybe gs $ do
   item_selection <- currentVendorItemSelection gs
@@ -415,4 +451,15 @@ getCurrentVendor gs = runMaybeExcept $ do
       Just MaterialVendor -> throwE MaterialVendor
       Just ToolVendor -> throwE ToolVendor
       _ -> return ()
+
+cycleGame :: Monad m => GameMonad m ()
+cycleGame = do
+  gs <- get
+
+  -- Enter vendor menu if not currently next to vendor.
+  case getCurrentVendor gs of
+    Nothing -> currentVendorMenuSelection .= Nothing
+    Just _vendor ->
+      when (isNothing $ gs^.currentVendorMenuSelection) $
+        currentVendorMenuSelection .= Just 0
 
