@@ -34,6 +34,7 @@ library
                       ,base >=4.9 && <5.0
                       ,clock
                       ,containers
+                      ,gitrev
                       ,lens
                       ,linear
                       ,mtl

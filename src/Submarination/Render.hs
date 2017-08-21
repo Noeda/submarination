@@ -16,6 +16,7 @@ import Control.Monad.Trans
 import Data.Data
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import Development.GitRev
 import Linear.V2
 import Protolude hiding ( to )
 import System.Timeout
@@ -101,28 +102,37 @@ terminalRenderer update_request_state = do
 
           _ -> go w h previous_rendering
 
+gitRev :: Text
+gitRev = $(gitBranch) <> "@" <> $(gitHash)
+
+gitDate :: Text
+gitDate = $(gitCommitDate)
+
 renderSplashScreen :: MonadTerminalState m => m ()
 renderSplashScreen = mutateTerminalStateM $ do
   clear
-  setText 0 1 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
-  setText 0 2 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
+  setText 0 0 Dull White Dull Black gitRev
+  setText 0 1 Dull White Dull Black gitDate
+
   setText 0 3 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
   setText 0 4 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
   setText 0 5 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
   setText 0 6 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
   setText 0 7 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
   setText 0 8 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
-  setText 10 4 Vivid White Dull Black "  Submarination  "
-  setText 17 6 Dull White Dull Black "^"
-  setText 12 7 Dull White Dull Black "<#######)"
+  setText 0 9 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
+  setText 0 10 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
+  setText 10 6 Vivid White Dull Black "  Submarination  "
+  setText 17 7 Dull White Dull Black "^"
+  setText 12 8 Dull White Dull Black "<#######)"
 
-  setText 3 10 Dull White Dull Black "Make your choice:"
-  setText 3 12  Vivid Cyan Dull Black "space)"
-  setText 10 12 Vivid White Dull Black "Start a new game"
+  setText 3 12 Dull White Dull Black "Make your choice:"
+  setText 3 14  Vivid Cyan Dull Black "space)"
+  setText 10 14 Vivid White Dull Black "Start a new game"
 
 #ifndef GHCJS_BROWSER
-  setText 3 13  Vivid Cyan Dull Black "q)"
-  setText 10 13 Vivid White Dull Black "Quit"
+  setText 3 15  Vivid Cyan Dull Black "q)"
+  setText 10 15 Vivid White Dull Black "Quit"
 #endif
 
 renderGameState :: MonadTerminalState m => GameState -> Integer -> m ()
