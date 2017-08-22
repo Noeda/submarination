@@ -111,8 +111,9 @@ gitDate = $(gitCommitDate)
 renderSplashScreen :: MonadTerminalState m => m ()
 renderSplashScreen = mutateTerminalStateM $ do
   clear
-  setText 0 0 Dull White Dull Black gitRev
-  setText 0 1 Dull White Dull Black gitDate
+  unless (gitRev == "UNKNOWN") $ do
+    setText 0 0 Dull White Dull Black gitRev
+    setText 0 1 Dull White Dull Black gitDate
 
   setText 0 3 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
   setText 0 4 Vivid Blue Dull Black "≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈≈"
