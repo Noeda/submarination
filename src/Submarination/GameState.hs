@@ -9,7 +9,7 @@ import Data.List ( (!!), delete )
 import qualified Data.Set as S
 import Linear.V2
 import qualified Prelude as E
-import Protolude hiding ( (&) )
+import Protolude hiding ( (&), to )
 
 import Submarination.Creature
 import Submarination.Item
@@ -207,23 +207,23 @@ advanceTurn = do
 
   walkCurrentLevelMetadata :: GameMonad m ()
   walkCurrentLevelMetadata = do
-    new_level <- walkLevel =<< use currentLevel
+    lvl <- use currentLevel
+    new_level <- walkLevel (lvl, V2 0 0)
     currentLevel .= new_level
 
   walkSubLevelMetadata :: GameMonad m ()
   walkSubLevelMetadata = do
     topo <- use $ sub.topology
-    new_sub_topo <- forOf subLevels topo walkLevel
+    new_sub_topo <- forOf subLevelsWithOffset topo walkLevel
     sub.topology .= new_sub_topo
 
-  walkLevel :: Level -> GameMonad m Level
-  walkLevel lvl = do
+  walkLevel :: (Level, V2 Int) -> GameMonad m Level
+  walkLevel (lvl, offset) = do
     current_turn <- use turn
-
-    player_pos <- use $ player.playerPosition
+    playerpos <- use $ player.playerPosition
 
     walkLevelActiveMetadata lvl $ \coords cell metadata -> return $ case (cell, metadata) of
-      (OpenHatch, HatchAutoClose close_turn) | close_turn <= current_turn && coords /= player_pos ->
+      (OpenHatch, HatchAutoClose close_turn) | close_turn <= current_turn && null (lvl^.itemsAt coords) && playerpos /= coords + offset ->
         (Hatch, Nothing)
       (OpenHatch, metadata@HatchAutoClose{}) ->
         (OpenHatch, Just metadata)
@@ -252,18 +252,20 @@ moveDirection direction = do
   notHatch lcell new_playerpos = do
     -- Can I walk there?
     let walkable = isWalkable lcell
-
     -- Is there some monster in there?
-    when walkable $ do
-      occupied <- gm $ isOccupied new_playerpos
-      unless occupied $ do
-        player.playerPosition .= new_playerpos
+    occupied <- gm $ isOccupied new_playerpos
+    -- Are we dragging something and there is something bulky in target?
+    dragging <- gm (^.player.playerDragging.to isJust)
+    bulky_at_target <- gm (^.levelBulkyItemAt new_playerpos.to isJust)
 
-        -- Moving takes extra time if we are slow
-        slow <- gm isSlow
-        when slow advanceTurn
+    when (walkable && not occupied && not (bulky_at_target && dragging)) $ do
+      player.playerPosition .= new_playerpos
 
-        advanceTurn
+      -- Moving takes extra time if we are slow
+      slow <- gm isSlow
+      when slow advanceTurn
+
+      advanceTurn
 
 surfaceLevel :: Level
 surfaceLevel = levelFromStringsPlacements SurfaceWater placements

@@ -15,7 +15,8 @@ module Submarination.Sub
   , subItemsP
   , subActiveMetadataAt
   , subSize
-  , subLevels )
+  , subLevels
+  , subLevelsWithOffset )
   where
 
 import Control.Lens hiding ( Level )
@@ -55,6 +56,17 @@ removeNonAirLockDoors topo = flip execState topo $
  where
   V2 w h = subSize topo
 
+subLevelsWithOffset :: Traversal SubTopology SubTopology (Level, V2 Int) Level
+subLevelsWithOffset action topo = go topo identity
+ where
+  go (Rotate90 topo) offset = Rotate90 <$> go topo (\(V2 x y) -> offset $ V2 y x)
+  go (StandardRoom lvl) offset = StandardRoom <$> action (lvl, offset $ V2 0 0)
+  go (Bridge lvl) offset = Bridge <$> action (lvl, offset $ V2 0 0)
+  go (AirLock lvl) offset = AirLock <$> action (lvl, offset $ V2 0 0)
+  go (Composition topo1 topo2 coffset sz) offset =
+    Composition <$> go topo1 offset <*> go topo2 (\inner_coords -> offset $ inner_coords + coffset) <*> pure coffset <*> pure sz
+{-# INLINE subLevelsWithOffset #-}
+
 subLevels :: Traversal' SubTopology Level
 subLevels action (Rotate90 topo) = Rotate90 <$> subLevels action topo
 subLevels action (StandardRoom lvl) = StandardRoom <$> action lvl
@@ -87,26 +99,39 @@ airLock = AirLock $ levelFromStrings Hull
  ,"X+X"
  ,"XhX"]
 
-subLens :: (V2 Int -> Lens' Level a) -> V2 Int -> Traversal' SubTopology a
-subLens level_lens coords@(V2 x y) action topo | x >= 0 && y >= 0 = case topo of
-  StandardRoom lvl | x < 5 && y < 5 -> StandardRoom <$> forOf (level_lens coords) lvl action
-  AirLock lvl | x < 3 && y < 3 -> AirLock <$> forOf (level_lens coords) lvl action
-  Bridge lvl | not (x == 0 && y == 0) &&
-               not (x == 0 && y == 4) &&
-               x < 5 && y < 5 -> Bridge <$> forOf (level_lens coords) lvl action
-  Composition topo1 topo2 offset@(V2 ox oy) (V2 w h) | x < w && y < h ->
-    let V2 tw1 th1 = subSize topo1
-
-     in if x < tw1 && y < th1 && execState (subLens (const identity) coords (\i -> put True >> pure i) topo1) False
-          then Composition <$> self coords action topo1 <*> pure topo2 <*> pure offset <*> pure (V2 w h)
-          else Composition topo1 <$> self (V2 (x-ox) (y-oy)) action topo2 <*> pure offset <*> pure (V2 w h)
-
-
-  _ -> pure topo
+subLensI :: forall a. (V2 Int -> Lens' Level a) -> V2 Int -> Traversal SubTopology SubTopology (a, V2 Int) a
+subLensI level_lens coords action topo = go coords topo identity
  where
-  self = subLens level_lens
+  go coords@(V2 x y) topo ioffset | x >= 0 && y >= 0 = case topo of
+    StandardRoom lvl | x < 5 && y < 5 ->
+      StandardRoom <$> forOf (level_lens coords) lvl (\thing -> action (thing, ioffset (V2 x y)))
 
-subLens _ _ _ topo = pure topo
+    AirLock lvl | x < 3 && y < 3 ->
+      AirLock <$> forOf (level_lens coords) lvl (\thing -> action (thing, ioffset (V2 x y)))
+
+    Bridge lvl | not (x == 0 && y == 0) &&
+                 not (x == 0 && y == 4) &&
+                 x < 5 && y < 5 ->
+      Bridge <$> forOf (level_lens coords) lvl (\thing -> action (thing, ioffset (V2 x y)))
+
+    Composition topo1 topo2 offset@(V2 ox oy) (V2 w h) | x < w && y < h ->
+      let V2 tw1 th1 = subSize topo1
+
+       in if x < tw1 && y < th1 && execState (subLens (const identity) coords (\i -> put True >> pure i) topo1) False
+            then Composition <$> go coords topo1 (\inner_coords -> ioffset $ inner_coords + offset) <*> pure topo2 <*> pure offset <*> pure (V2 w h)
+            else Composition topo1 <$> go (V2 (x-ox) (y-oy)) topo2 (\inner_coords -> ioffset $ inner_coords + offset) <*> pure offset <*> pure (V2 w h)
+
+    Rotate90 topo ->
+      go (V2 y x) topo (\(V2 ix iy) -> V2 iy ix)
+
+    _ -> pure topo
+
+  go _ _ _ = pure topo
+{-# INLINE subLensI #-}
+
+subLens :: (V2 Int -> Lens' Level a) -> V2 Int -> Traversal' SubTopology a
+subLens level_lens coords action topo =
+  forOf (subLensI level_lens coords) topo $ \(thing, _coords) -> action thing
 {-# INLINE subLens #-}
 
 topologyName :: SubTopology -> Maybe Text
