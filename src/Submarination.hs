@@ -6,10 +6,12 @@ module Submarination
 
 import Control.Lens
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import Prelude ( String )
-import Protolude hiding ( to )
+import Protolude hiding ( to, drop )
 
 import Submarination.GameState
+import Submarination.GameState.Types
 import Submarination.Item
 import Submarination.Render
 import Submarination.Terminal
@@ -42,38 +44,55 @@ startGame knob = do
   game_state <- gm identity
   showGameState knob game_state
 
-  in_inventory <- gm (^.menuState.to (Inventory `M.member`))
+  in_active_menu <- gm inActiveMenu
+  in_vendor <- gm (^.menuState.at Vendor . to isJust)
+  gs <- gm identity
 
   ch <- getInputChar
   case ch of
 #ifndef GHCJS_BROWSER
     'q' -> return ()
 #endif
-    dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) && not in_inventory -> do
-      move dir_ch
-      startGame knob
-    menu_ch | menu_ch `elem` ("az " :: String) && not in_inventory -> do
-      vendorMenu menu_ch
-      startGame knob
-    menu_ch | menu_ch `elem` ("az" :: String) && in_inventory -> do
-      inventoryMenu menu_ch
-      startGame knob
-    'g' | not in_inventory -> do
-      drag
-      startGame knob
-    'i' -> do
-      inventory
-      startGame knob
-    ' ' | in_inventory -> do
-      inventory
-      startGame knob
-    _ -> startGame knob
+    ch -> do
+      case ch of
+        dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) && not in_active_menu -> do
+          move dir_ch
 
-inventory :: Monad m => GameMonad m ()
-inventory = menuState %= \menus ->
-  if Inventory `M.member` menus
-    then M.delete Inventory menus
-    else M.insert Inventory 0 menus
+        -- Item menus
+        ch | gs^?to getActiveMenuHandler._Just.to offKeys.to (ch `S.member`) == Just True ->
+          itemMenuOff
+        ch | gs^?to getActiveMenuHandler._Just.to menuKeys.to (ch `M.member`) == Just True ->
+          itemMenuAction ch
+        ch | Just ms <- keyToMenuStateTrigger ch ->
+          itemTrigger ms
+        ' ' | in_active_menu ->
+          itemMenuOff
+        ch | ch `elem` ("az" :: String) && in_active_menu ->
+          itemMenu ch
+
+        -- Vendor menu
+        ch | ch `elem` ("az " :: String) && in_vendor ->
+          vendorMenu ch
+
+        -- Dragging
+        'g' | not in_active_menu ->
+          drag
+
+        _ -> return ()
+
+      startGame knob
+
+itemMenuAction :: Monad m => Char -> GameMonad m ()
+itemMenuAction ch = use (to getActiveMenuHandler) >>= \case
+  Just handler | Just (_, action) <- menuKeys handler^.at ch -> do
+    gs <- gm identity
+    case action gs of
+      Nothing -> return ()
+      Just new_gs -> do
+        put new_gs
+        itemMenuOff
+
+  _ -> return ()
 
 drag :: Monad m => GameMonad m ()
 drag = use (player.playerDragging) >>= \case
@@ -102,18 +121,33 @@ drag = use (player.playerDragging) >>= \case
 
         advanceTurn
 
-inventoryMenu :: Monad m => Char -> GameMonad m ()
-inventoryMenu ch = gm (^.currentInventoryMenuSelection) >>= \case
-  Just menu_selection -> do
-    inventory <- gm (^.player.playerInventory)
-    let max_selection = M.size (groupItems inventory)-1
-        current_selection = max 0 $ min max_selection menu_selection
-    case ch of
-      'a' | current_selection > 0 -> currentInventoryMenuSelection .= (Just $ current_selection-1)
-      'z' | current_selection < max_selection -> currentInventoryMenuSelection .= (Just $ current_selection+1)
-      _ -> return ()
+itemTrigger :: Monad m => MenuState -> GameMonad m ()
+itemTrigger ms = do
+  old_state <- use (menuState.at ms)
+  case old_state of
+    Nothing -> menuState.at ms .= Just 0
+    Just{}  -> menuState.at ms .= Nothing
 
+itemMenuOff :: Monad m => GameMonad m ()
+itemMenuOff = gm getActiveMenu >>= \case
+  Just ms -> menuState. at ms .= Nothing
   _ -> return ()
+
+itemMenu :: Monad m => Char -> GameMonad m ()
+itemMenu ch = gm getActiveMenuHandler >>= \case
+  Nothing -> return ()
+  Just handler -> do
+    items <- filter (menuFilter handler) <$> gm (^.itemLens handler)
+    menu_selection <- fromMaybe 0 <$> gm (^.selectionLens handler)
+    let max_selection = M.size (groupItems items)-1
+        current_selection = max 0 $ min max_selection menu_selection
+
+    case ch of
+      'a' | current_selection > 0 ->
+        selectionLens handler .= (Just $ current_selection-1)
+      'z' | current_selection < max_selection ->
+        selectionLens handler .= (Just $ current_selection+1)
+      _ -> return ()
 
 vendorMenu :: Monad m => Char -> GameMonad m ()
 vendorMenu ch = ((,) <$> gm getCurrentVendor <*> gm (^.currentVendorMenuSelection)) >>= \case

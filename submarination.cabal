@@ -13,6 +13,7 @@ library
   exposed-modules:    Submarination
                       Submarination.Creature
                       Submarination.GameState
+                      Submarination.GameState.Types
                       Submarination.Item
                       Submarination.MonotonicClock
                       Submarination.Level

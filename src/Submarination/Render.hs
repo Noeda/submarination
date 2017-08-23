@@ -13,8 +13,10 @@ import Control.Arrow ( (***) )
 import Control.Lens hiding ( Level )
 import Control.Concurrent.STM
 import Control.Monad.Trans
+import Data.Char
 import Data.Data
 import qualified Data.Map.Strict as M
+import qualified Data.Set as S
 import qualified Data.Text as T
 import Development.GitRev
 import Linear.V2
@@ -23,6 +25,7 @@ import System.Timeout
 
 import Submarination.Creature
 import Submarination.GameState
+import Submarination.GameState.Types
 import Submarination.Item
 import Submarination.MonotonicClock
 import Submarination.Level
@@ -143,11 +146,12 @@ renderGameState' :: MonadTerminalState m => Integer -> GameMonadRo m ()
 renderGameState' monotonic_time_ns = do
   game_state <- gr identity
   in_inventory <- gr (^.menuState.to (Inventory `M.member`))
+  in_pickup <- gr (^.menuState.to (Pickup `M.member`))
 
   lift $ mutateTerminalStateM $ do
     clear
 
-    let rendering = do unless in_inventory $ do
+    let rendering = do unless (in_inventory || in_pickup) $ do
                          renderCurrentLevel monotonic_time_ns
                          renderSub monotonic_time_ns
                          renderCreatures
@@ -373,25 +377,26 @@ renderHud _monotonic_time_ns = do
 
   renderTurn
 
-  in_inventory <- gr (^.menuState.to (Inventory `M.member`))
   on_surface <- gr isOnSurface
+  maybe_item_menu_handler <- gr getActiveMenuHandler
 
-  if | in_inventory
-       -> runVerticalBoxRender 2 renderInventory
-     | on_surface
-       -> runVerticalBoxRender 6 renderSurfaceHud
-     | otherwise
-       -> return ()
+  case maybe_item_menu_handler of
+    Just item_menu_handler ->
+      runVerticalBoxRender 2 (renderItemMenu item_menu_handler)
+    _ -> if | on_surface
+               -> runVerticalBoxRender 6 renderSurfaceHud
+            | otherwise
+               -> return ()
 
-renderInventory :: VerticalBoxRender (GameMonadRoTerminal s) ()
-renderInventory = do
+renderItemMenu :: ItemMenuHandler -> VerticalBoxRender (GameMonadRoTerminal s) ()
+renderItemMenu item_handler = do
   renderInventorySummary 2 False
 
-  selection <- gr (^.currentInventoryMenuSelection)
+  selection <- gr (^.selectionLens item_handler)
+  items <- filter (menuFilter item_handler) <$> gr (^.itemLens item_handler)
+  let gitems = groupItems items
 
-  items <- gr (^.player.playerInventory.to groupItems)
-
-  for_ (zip [0..] (M.assocs items)) $ \(index, (item, count)) -> do
+  for_ (zip [0..] (M.assocs gitems)) $ \(index, (item, count)) -> do
     let fintensity = if Just index == selection
                        then Vivid
                        else Dull
@@ -404,14 +409,32 @@ renderInventory = do
     if count == 1
       then appendText 4 1 fintensity Yellow Dull Black $ itemName item Singular
       else appendText 4 1 fintensity Yellow Dull Black $ show count <> " " <> itemName item Many
-      
+
+  appendText 4 1 Dull White Dull White ""
+  renderKeyInstructions [(["SPACE"] <> (T.singleton <$> (toUpper <$> S.toList (offKeys item_handler))), "Close")] 2
+
   appendText 2 1 Dull Yellow Dull Black ""
 
-  appendText 2 0 Dull White Dull Black "[SPACE or I] Close inventory [ ] ↑ [ ] ↓"
-  appendText 3 0 Vivid Green Dull Black "SPACE or I"
-  appendText 32 0 Vivid Green Dull Black "A"
-  appendText 38 0 Vivid Green Dull Black "Z"
-  appendText 9 2 Dull White Dull Black "or"
+renderKeyInstructions :: [([Text], Text)] -> Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
+renderKeyInstructions lst x = go lst x
+ where
+  go [] _ = return ()
+  go ((key, action):rest) x = do
+    appendText x 0 Dull White Dull Black "["
+    go2 key (x+1)
+   where
+    go2 [] x = do
+      appendText x 0 Dull White Dull Black $ "] " <> action
+      go rest (x+textWidth action + 3)
+
+    go2 (key1:key2:restkeys) x = do
+      appendText x 0 Vivid Green Dull Black key1
+      appendText (x+textWidth key1) 0 Dull White Dull Black " or "
+      go2 (key2:restkeys) (x+textWidth key1+4)
+
+    go2 [last_key] x = do
+      appendText x 0 Vivid Green Dull Black last_key
+      go2 [] (x+textWidth last_key)
 
 renderItemPileHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderItemPileHud = do
