@@ -144,13 +144,12 @@ renderGameState game_state monotonic_time_ns = runReaderT (renderGameState' mono
 renderGameState' :: MonadTerminalState m => Integer -> GameMonadRo m ()
 renderGameState' monotonic_time_ns = do
   game_state <- gr identity
-  in_inventory <- gr $ gsIsMenuActive Inventory
-  in_pickup <- gr $ gsIsMenuActive Pickup
+  in_active_menu <- gr $ isJust . gmActiveMenu
 
   lift $ mutateTerminalStateM $ do
     clear
 
-    let rendering = do unless (in_inventory || in_pickup) $ do
+    let rendering = do unless in_active_menu $ do
                          renderCurrentLevel monotonic_time_ns
                          renderSub monotonic_time_ns
                          renderCreatures
@@ -391,33 +390,72 @@ renderItemMenu :: ItemMenuHandler -> VerticalBoxRender (GameMonadRoTerminal s) (
 renderItemMenu item_handler = do
   renderInventorySummary 2 False
 
-  selection <- gr (^.selectionLens item_handler)
   items <- filter (menuFilter item_handler) <$> gr (^.itemLens item_handler)
   let gitems = groupItems items
 
-  for_ (zip [0..] (M.assocs gitems)) $ \(index, (item, count)) -> do
-    let fintensity = if Just index == selection
-                       then Vivid
-                       else Dull
+  (case selectMode item_handler of
+     SingleSelect -> singleOrNotSelectableSelectRender True
+     MultiSelect -> multiSelectRender
+     NotSelectable -> singleOrNotSelectableSelectRender False) gitems
 
-    when (Just index == selection) $ do
-      appendText 2 0 Vivid Green Dull Black "➔"
-      lift $ lift $ setText 53 6 Vivid White Dull Black $ itemName item Singular
-      void $ lift $ lift $ setWrappedText 53 8 25 Dull White Dull Black $ itemDescription item
-
-    if count == 1
-      then appendText 4 1 fintensity Yellow Dull Black $ itemName item Singular
-      else appendText 4 1 fintensity Yellow Dull Black $ show count <> " " <> itemName item Many
-
-  appendText 4 1 Dull White Dull White ""
-  renderKeyInstructions [(["SPACE"] <> (T.singleton <$> (toUpper <$> S.toList (offKeys item_handler))), "Close")] 2
 
   appendText 2 1 Dull Yellow Dull Black ""
+ where
+  actionInstructions = (M.assocs $ menuKeys item_handler) <&> \(ch, (text, _action)) ->
+    ([T.singleton $ toUpper ch], text)
+
+  otherInstructions = (M.assocs $ otherKeys item_handler) <&> \(ch, text) ->
+    ([T.singleton $ toUpper ch], text)
+
+  multiSelectRender gitems = do
+    cursor <- gr gmMenuCursor
+    selections <- fromMaybe S.empty <$> gr gmMenuSelections
+
+    for_ (zip [0..] (M.assocs gitems)) $ \(index, (item, count)) -> do
+      let fintensity = if Just index == cursor then Vivid else Dull
+
+      if index `S.member` selections
+        then appendText 4 0 fintensity Yellow Dull Black "[✓]"
+        else appendText 4 0 fintensity Yellow Dull Black "[ ]"
+
+      when (Just index == cursor) $ do
+        appendText 2 0 Vivid Green Dull Black "➔"
+        lift $ lift $ setText 53 6 Vivid White Dull Black $ itemName item Singular
+        void $ lift $ lift $ setWrappedText 53 8 25 Dull White Dull Black $ itemDescription item
+
+      if count == 1
+        then appendText 8 1 fintensity Yellow Dull Black $ itemName item Singular
+        else appendText 8 1 fintensity Yellow Dull Black $ show count <> " " <> itemName item Many
+
+    appendText 4 1 Dull White Dull White ""
+    renderKeyInstructions ([((T.singleton <$> (toUpper <$> S.toList (offKeys item_handler))), "Cancel"), (["SPACE"], "Select")] <> actionInstructions <> otherInstructions) 2
+
+  singleOrNotSelectableSelectRender is_single gitems = do
+    selection <- gr gmMenuCursor
+
+    for_ (zip [0..] (M.assocs gitems)) $ \(index, (item, count)) -> do
+      let fintensity = if Just index == selection && is_single
+                         then Vivid
+                         else Dull
+
+      when (Just index == selection && is_single) $ do
+        appendText 2 0 Vivid Green Dull Black "➔"
+        lift $ lift $ setText 53 6 Vivid White Dull Black $ itemName item Singular
+        void $ lift $ lift $ setWrappedText 53 8 25 Dull White Dull Black $ itemDescription item
+
+      if count == 1
+        then appendText 4 1 fintensity Yellow Dull Black $ itemName item Singular
+        else appendText 4 1 fintensity Yellow Dull Black $ show count <> " " <> itemName item Many
+
+    unless is_single $ do
+      appendText 4 1 Dull White Dull White ""
+      renderKeyInstructions ([(["SPACE"], "Close")] <> actionInstructions <> otherInstructions) 4
 
 renderKeyInstructions :: [([Text], Text)] -> Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderKeyInstructions = go
  where
   go [] _ = return ()
+  go ((key, _action):rest) x | null key = go rest x
   go ((key, action):rest) x = do
     appendText x 0 Dull White Dull Black "["
     go2 key (x+1)

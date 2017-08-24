@@ -2,7 +2,8 @@ module Submarination.GameState.Types
   ( GameState(..)
   , player
   , sub
-  , menuState
+  , activeMenuState
+  , vendorMenu
   , depth
   , turn
   , levels
@@ -18,14 +19,15 @@ module Submarination.GameState.Types
   , playerInventory
   , playerDragging
   , Status(..)
-  , MenuState(..)
+  , ActiveMenuState(..)
   , ItemMenuHandler(..)
   , itemsAtPlayer
   , subOrLevelLens
   , glCellAt
   , glItemsAt
   , glCurrentLevel
-  , HasGameState(..) )
+  , HasGameState(..)
+  , SelectMode(..) )
   where
 
 import Control.Lens hiding ( Level, levels )
@@ -41,10 +43,10 @@ import Submarination.Level
 import Submarination.Sub
 import Submarination.Terminal
 
-data MenuState
-  = Vendor
-  | Pickup
+data ActiveMenuState
+  = Pickup
   | Inventory
+  | Drop
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
 
 data Sub = Sub
@@ -53,12 +55,13 @@ data Sub = Sub
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data GameState = GameState
-  { _player    :: !Player
-  , _sub       :: !Sub
-  , _menuState :: !(M.Map MenuState Int)
-  , _depth     :: !Int
-  , _turn      :: !Int
-  , _levels    :: !(M.Map Int Level) }
+  { _player          :: !Player
+  , _sub             :: !Sub
+  , _activeMenuState :: !(M.Map ActiveMenuState (S.Set Int, Int))
+  , _vendorMenu      :: !(Maybe Int)
+  , _depth           :: !Int
+  , _turn            :: !Int
+  , _levels          :: !(M.Map Int Level) }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data Player = Player
@@ -129,14 +132,23 @@ glCurrentLevel = lens get_it set_it
 {-# INLINE glCurrentLevel #-}
 
 data ItemMenuHandler = ItemMenuHandler
-  { triggerKeys   :: S.Set Char
-  , offKeys       :: S.Set Char
-  , menuKeys      :: M.Map Char (Text, GameState -> Maybe GameState)
-  , selectionLens :: Lens' GameState (Maybe Int)
-  , prerequisites :: GameState -> Bool
-  , menuFilter    :: Item -> Bool
-  , itemLens      :: Lens' GameState [Item] }
+  { triggerKeys        :: S.Set Char
+  , offKeys            :: S.Set Char
+  , quickEnterAction   :: GameState -> Maybe GameState
+  , menuStateKey       :: !ActiveMenuState
+  , menuKeys           :: M.Map Char (Text, GameState -> Maybe GameState)
+  , prerequisites      :: GameState -> Bool
+  , selectMode         :: SelectMode
+  , menuFilter         :: Item -> Bool
+  , otherKeys          :: M.Map Char Text
+  , itemLens           :: Lens' GameState [Item] }
   deriving ( Typeable )
+
+data SelectMode
+  = NotSelectable
+  | SingleSelect
+  | MultiSelect
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
 
 class HasGameState a where
   gameState :: Lens' a GameState

@@ -11,7 +11,6 @@ import Prelude ( String )
 import Protolude hiding ( to, drop )
 
 import Submarination.GameState
-import Submarination.Item
 import Submarination.Render
 import Submarination.Terminal
 import Submarination.Vendor
@@ -32,7 +31,7 @@ splashScreen knob = do
   ch <- getInputChar
   case ch of
 #ifndef GHCJS_BROWSER
-    'q' -> return ()
+    'm' -> return ()
 #endif
     ' ' -> evalStateT (startGame knob) initialGameState
     _ -> splashScreen knob
@@ -50,7 +49,7 @@ startGame knob = do
   ch <- getInputChar
   case ch of
 #ifndef GHCJS_BROWSER
-    'q' -> return ()
+    'm' -> return ()
 #endif
     ch -> do
       case ch of
@@ -60,14 +59,15 @@ startGame knob = do
         -- Item menus
         ch | gs^?to gmActiveMenuHandler._Just.to offKeys.to (ch `S.member`) == Just True ->
           itemMenuOff
+        ch | Just ms <- menuKeyToMenuStateTrigger ch,
+             Just ms /= gmActiveMenu gs ->
+          itemTrigger ms
+        ' ' | Just MultiSelect <- gmCurrentSelectMode gs ->
+          itemSelectAction
         ch | gs^?to gmActiveMenuHandler._Just.to menuKeys.to (ch `M.member`) == Just True ->
           itemMenuAction ch
-        ch | Just ms <- menuKeyToMenuStateTrigger ch ->
-          itemTrigger ms
-        ' ' | in_active_menu ->
-          itemMenuOff
         ch | ch `elem` ("az" :: String) && in_active_menu ->
-          itemMenu ch
+          navigateCursor ch
 
         -- Vendor menu
         ch | ch `elem` ("az " :: String) && in_vendor ->
@@ -80,6 +80,9 @@ startGame knob = do
         _ -> return ()
 
       startGame knob
+
+itemSelectAction :: Monad m => GameMonad m ()
+itemSelectAction = modifyConditional gmSelectToggleCursorItem
 
 itemMenuAction :: Monad m => Char -> GameMonad m ()
 itemMenuAction ch = use (to gmActiveMenuHandler) >>= \case
@@ -118,27 +121,18 @@ drag = use (glPlayer.playerDragging) >>= \case
 
         modify gsAdvanceTurn
 
-itemTrigger :: Monad m => MenuState -> GameMonad m ()
-itemTrigger = modify . gsEnterMenu
+itemTrigger :: Monad m => ActiveMenuState -> GameMonad m ()
+itemTrigger ams = do
+  modifyConditional $ gsEnterMenu ams
 
 itemMenuOff :: Monad m => GameMonad m ()
 itemMenuOff = modifyConditional gmCloseMenu
 
-itemMenu :: Monad m => Char -> GameMonad m ()
-itemMenu ch = gm gmActiveMenuHandler >>= \case
-  Nothing -> return ()
-  Just handler -> do
-    items <- filter (menuFilter handler) <$> gm (^.itemLens handler)
-    menu_selection <- fromMaybe 0 <$> gm (^.selectionLens handler)
-    let max_selection = M.size (groupItems items)-1
-        current_selection = max 0 $ min max_selection menu_selection
-
-    case ch of
-      'a' | current_selection > 0 ->
-        selectionLens handler .= (Just $ current_selection-1)
-      'z' | current_selection < max_selection ->
-        selectionLens handler .= (Just $ current_selection+1)
-      _ -> return ()
+navigateCursor :: Monad m => Char -> GameMonad m ()
+navigateCursor ch = case ch of
+  'a' -> modifyConditional gmDecreaseMenuCursor
+  'z' -> modifyConditional gmIncreaseMenuCursor
+  _ -> return ()
 
 vendorMenu :: Monad m => Char -> GameMonad m ()
 vendorMenu ch = ((,) <$> gm gmCurrentVendorCreature <*> gm (^.glCurrentVendorMenuSelection)) >>= \case

@@ -59,15 +59,23 @@ module Submarination.GameState
   , gsIsMenuActive
   , gmActiveMenuHandler
   , gmActiveMenu
-  , gmCurrentlySelectedItem
-  , gmCurrentlySelectedInventoryItem
+  , gmCurrentSelectMode
+  , gmCurrentlySelectedItems
+  , gmCurrentlySelectedSingleItem
+  , gmCurrentlySelectedSingleInventoryItem
   , gmCloseMenu
-  , glCurrentMenuSelection
-  , MenuState(..)
+  , gmSelectToggleCursorItem
+  , ActiveMenuState(..)
+  , SelectMode(..)
+  , gmMenuCursor
+  , gmMenuSelections
+  , gmIncreaseMenuCursor
+  , gmDecreaseMenuCursor
   -- ** Menu utilities
   , menuKeyToMenuStateTrigger
   , menuItemHandler
   , ItemMenuHandler(..)
+  , singleSelection
   -- ** Vendor stuff
   , gsCurrentVendorItemSelection
   , gsIsVendoring
@@ -142,7 +150,8 @@ initialGameState = GameState
                      , _playerShells = 1000
                      , _playerInventory = []
                      , _playerDragging = Nothing }
-  , _menuState = M.empty
+  , _activeMenuState = M.empty
+  , _vendorMenu      = Nothing
   , _turn = 1
   , _levels = M.singleton 0 surfaceLevel
   , _sub = Sub { _subPosition = V2 23 (-2)
@@ -185,16 +194,8 @@ gsCurrentStatuses gs =
 gsIsSlow :: GameState -> Bool
 gsIsSlow gs = isJust $ gs^.player.playerDragging
 
-glCurrentMenuSelection :: MenuState -> Lens' GameState (Maybe Int)
-glCurrentMenuSelection ms = menuState.at ms
-
 glCurrentVendorMenuSelection :: Lens' GameState (Maybe Int)
-glCurrentVendorMenuSelection = lens get_it set_it
- where
-  get_it gs = 
-    M.lookup Vendor (gs^.menuState)
-  set_it gs new_selection =
-    gs & menuState.at Vendor .~ new_selection
+glCurrentVendorMenuSelection = vendorMenu
 
 gsCurrentVendorItemSelection :: GameState -> Maybe Item
 gsCurrentVendorItemSelection gs = do
@@ -426,28 +427,40 @@ gmCurrentVendorCreature gs = runMaybeExcept $ do
 
 gmActiveMenuHandler :: GameState -> Maybe ItemMenuHandler
 gmActiveMenuHandler gs =
-  ch Inventory <|> ch Pickup
+  ch Drop <|> ch Inventory <|> ch Pickup
  where
-  ch ms = case gs^.menuState.at ms of
+  ch ms = case gs^.activeMenuState.at ms of
     Nothing -> Nothing
-    Just _index -> menuItemHandler ms
+    Just _index -> Just $ menuItemHandler ms
 
-gmActiveMenu :: GameState -> Maybe MenuState
+gmActiveMenu :: GameState -> Maybe ActiveMenuState
 gmActiveMenu gs =
   if | Inventory `M.member` menus -> Just Inventory
+     | Drop      `M.member` menus -> Just Drop
      | Pickup    `M.member` menus -> Just Pickup
 
      | otherwise -> Nothing
  where
-  menus = gs^.menuState
+  menus = gs^.activeMenuState
 
 gmCloseMenu :: GameState -> Maybe GameState
 gmCloseMenu gs = do
   active_menu <- gmActiveMenu gs
-  return $ gs & menuState.at active_menu .~ Nothing
+  return $ gs & activeMenuState.at active_menu .~ Nothing
 
-gsEnterMenu :: MenuState -> GameState -> GameState
-gsEnterMenu ms = menuState.at ms .~ Just 0
+gsEnterMenu :: ActiveMenuState -> GameState -> Maybe GameState
+gsEnterMenu ms gs = do
+  let handler = menuItemHandler ms
+  guard (prerequisites handler gs)
+
+  let initial_selection = case selectMode handler of
+                            NotSelectable -> S.empty
+                            SingleSelect -> S.singleton 0
+                            MultiSelect -> S.empty
+
+  return $ fromMaybe (gs & (activeMenuState.at ms .~ Just (initial_selection, 0)) .
+                           (activeMenuState .~ M.empty)) $
+    quickEnterAction handler gs
 
 gsCycleGame :: GameState -> GameState
 gsCycleGame = execState $ do
@@ -460,90 +473,214 @@ gsCycleGame = execState $ do
       when (isNothing $ gs^.glCurrentVendorMenuSelection) $
         glCurrentVendorMenuSelection .= Just 0
 
-  -- Inventory selection must be within range
-  case gs^.menuState.at Inventory of
-    Just _selection -> case gmCurrentlySelectedInventoryItem gs of
-      Nothing -> menuState.at Inventory .= Just 0
-      _ -> return ()
-    _ -> return ()
-
 gsInActiveMenu :: GameState -> Bool
 gsInActiveMenu = isJust . gmActiveMenu
 
-gsIsMenuActive :: MenuState -> GameState -> Bool
-gsIsMenuActive ms gs = gs^.menuState.to (ms `M.member`)
+gsIsMenuActive :: ActiveMenuState -> GameState -> Bool
+gsIsMenuActive ms gs = gs^.activeMenuState.to (ms `M.member`)
 
-menuKeyToMenuStateTrigger :: Char -> Maybe MenuState
+menuKeyToMenuStateTrigger :: Char -> Maybe ActiveMenuState
 menuKeyToMenuStateTrigger ch = go menu_states
  where
   menu_states = enumFrom (toEnum 0)
 
   go [] = Nothing
-  go (candidate:rest) = case menuItemHandler candidate of
-    Just handler | ch `S.member` triggerKeys handler -> Just candidate
-    _ -> go rest
+  go (candidate:rest) =
+    if ch `S.member` triggerKeys (menuItemHandler candidate)
+      then Just candidate
+      else go rest
 
-gmCurrentlySelectedItem :: GameState -> Maybe Item
-gmCurrentlySelectedItem gs = do
+gmCurrentlySelectedItems :: GameState -> Maybe [Item]
+gmCurrentlySelectedItems gs = do
+  handler <- gmActiveMenuHandler gs
+  case selectMode handler of
+    SingleSelect  -> (\x -> [x]) <$> gmCurrentlySelectedSingleItem gs
+    MultiSelect   -> do
+      selected_set <- gs^?activeMenuState.at (menuStateKey handler)._Just._1
+      let items = filter (menuFilter handler) (gs^.itemLens handler)
+          gitems = M.assocs $ groupItems items
+
+      return $ concatMap (\index ->
+        let (item, count) = gitems !! index
+         in replicate count item) (S.toList selected_set)
+
+    NotSelectable -> Nothing
+
+gmCurrentlySelectedSingleItem :: GameState -> Maybe Item
+gmCurrentlySelectedSingleItem gs = do
   handler <- gmActiveMenuHandler gs
   let items = filter (menuFilter handler) (gs^.itemLens handler)
       gitems = groupItems items
 
   guard (not $ null items)
 
-  let menu_selection = fromMaybe 0 (gs^.selectionLens handler)
+  let menu_selection = fromMaybe 0 (gs^?activeMenuState.at (menuStateKey handler)._Just._1.singleSelection)
       max_selection = M.size gitems-1
       current_selection = max 0 $ min max_selection menu_selection
 
   return $ fst $ M.assocs gitems !! current_selection
 
-currentlySelectedMenuItemLens :: MenuState -> Lens' GameState [Item] -> Getter GameState (Maybe Item)
-currentlySelectedMenuItemLens menu_state item_get = to $ \gs -> do
-  selection <- gs^.menuState.at menu_state
+singleSelection :: Prism' (S.Set Int) Int
+singleSelection = prism' S.singleton $ \sset ->
+  if S.size sset == 1
+    then Just $ S.findMin sset
+    else Nothing
+
+currentlySelectedSingleMenuItemLens :: ActiveMenuState -> Lens' GameState [Item] -> Getter GameState (Maybe Item)
+currentlySelectedSingleMenuItemLens menu_state item_get = to $ \gs -> do
+  selection <- gs^?activeMenuState.at menu_state._Just._2
   let items = gs^.item_get.to groupItems.to M.assocs
   guard (selection >= 0 && selection < length items)
   return $ fst $ items !! selection
 
-gmCurrentlySelectedInventoryItem :: GameState -> Maybe Item
-gmCurrentlySelectedInventoryItem gs =
-  gs^.currentlySelectedMenuItemLens Inventory (player.playerInventory)
+gmCurrentlySelectedSingleInventoryItem :: GameState -> Maybe Item
+gmCurrentlySelectedSingleInventoryItem gs =
+  gs^.currentlySelectedSingleMenuItemLens Inventory (player.playerInventory)
 
-gmDropInventoryItem :: GameState -> Maybe GameState
-gmDropInventoryItem gs = do
-  selected_inventory_item <- gmCurrentlySelectedInventoryItem gs
-  return $ gs & (player.playerInventory %~ delete selected_inventory_item) .
-                (glItemsAt (gs^.player.playerPosition) %~ (:) selected_inventory_item)
+gmDropItem :: Item -> GameState -> Maybe GameState
+gmDropItem item gs = do
+  guard (item `elem` (gs^.player.playerInventory))
+  return $ gs & (player.playerInventory %~ delete item) .
+                (glItemsAt (gs^.player.playerPosition) %~ (:) item)
 
-
-gmPickUpItem :: GameState -> Maybe GameState
-gmPickUpItem gs = do
-  guard (gmActiveMenu gs == Just Pickup)
-  handler <- gmActiveMenuHandler gs
-  item <- gmCurrentlySelectedItem gs
+gmPickUpItem :: Item -> GameState -> Maybe GameState
+gmPickUpItem item gs = do
+  let items_on_floor = gs^.itemsAtPlayer
+  guard (item `elem` items_on_floor)
 
   new_gs <- gs^.to (gmAddItemInventory item)
-  return $ new_gs & (itemLens handler %~ delete item)
+  return $ new_gs & (itemsAtPlayer %~ delete item)
 
-menuItemHandler :: MenuState -> Maybe ItemMenuHandler
-menuItemHandler Inventory = Just ItemMenuHandler
+gmPickUpItemByMenu :: GameState -> Maybe GameState
+gmPickUpItemByMenu gs = do
+  guard (gmActiveMenu gs == Just Pickup)
+  items <- gmCurrentlySelectedItems gs
+  go items gs
+ where
+  go :: [Item] -> GameState -> Maybe GameState
+  go [] gs = Just gs
+  go (item:rest) gs = gmPickUpItem item gs >>= go rest
+
+gmDropInventoryItemByMenu :: GameState -> Maybe GameState
+gmDropInventoryItemByMenu gs = do
+  guard (gmActiveMenu gs == Just Drop)
+  items <- gmCurrentlySelectedItems gs
+  go items gs
+ where
+  go :: [Item] -> GameState -> Maybe GameState
+  go [] gs = Just gs
+  go (item:rest) gs = gmDropItem item gs >>= go rest
+
+gmCurrentSelectMode :: GameState -> Maybe SelectMode
+gmCurrentSelectMode gs =
+  selectMode <$> gmActiveMenuHandler gs
+
+defaultItemHandler :: ActiveMenuState -> Lens' GameState [Item] -> ItemMenuHandler
+defaultItemHandler key item_lens = ItemMenuHandler
+  { triggerKeys      = S.empty
+  , offKeys          = S.empty
+  , menuStateKey     = key
+  , selectMode       = NotSelectable
+  , menuKeys         = M.empty
+  , prerequisites    = const True
+  , menuFilter       = const True
+  , quickEnterAction = const Nothing
+  , otherKeys        = M.empty
+  , itemLens         = item_lens }
+
+menuItemHandler :: ActiveMenuState -> ItemMenuHandler
+menuItemHandler Inventory = (defaultItemHandler Inventory (player.playerInventory))
   { triggerKeys = S.fromList "i"
-  , offKeys = S.fromList "i"
-  , menuKeys = M.fromList [('d', ("Drop", \gs -> gs^.to gmDropInventoryItem))]
+  , offKeys = S.fromList "qi "
+  , selectMode = NotSelectable
+  , menuKeys = M.empty
   , prerequisites = not . gsInActiveMenu
-  , selectionLens = menuState.at Inventory
   , menuFilter = const True
-  , itemLens = player.playerInventory }
-menuItemHandler Pickup = Just ItemMenuHandler
+  , otherKeys = M.fromList [('d', "Drop items")]
+  , quickEnterAction = const Nothing }
+menuItemHandler Drop = (defaultItemHandler Drop (player.playerInventory))
+  { triggerKeys = S.fromList "d"
+  , offKeys = S.fromList "q"
+  , selectMode = MultiSelect
+  , menuKeys = M.fromList [('d', ("Drop", (^.to gmDropInventoryItemByMenu)))]
+  , prerequisites = \gs -> gmActiveMenu gs == Just Inventory &&
+                           not (null $ gs^.player.playerInventory)
+  , menuFilter = const True
+  , quickEnterAction = const Nothing }
+menuItemHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
   { triggerKeys = S.fromList ","
-  , offKeys = S.empty
-  , menuKeys = M.fromList [(',', ("Pick up", \gs -> gs^.to gmPickUpItem))]
+  , offKeys = S.fromList "q"
+  , selectMode = MultiSelect
+  , menuKeys = M.fromList [(',', ("Pick up", \gs -> gs^.to gmPickUpItemByMenu))]
 
   , prerequisites = \gs -> not (gsInActiveMenu gs) && not (null $ gs^.itemsAtPlayer)
-  , selectionLens = menuState.at Pickup
   , menuFilter = not . isItemBulky
-  , itemLens = itemsAtPlayer }
-menuItemHandler _ = Nothing
+  , quickEnterAction = \gs -> case filter (not . isItemBulky) $ gs^.itemsAtPlayer of
+      [single_item] -> gs^.to (gmPickUpItem single_item)
+      _ -> Nothing }
 
 gsIsVendoring :: GameState -> Bool
-gsIsVendoring gs = isJust $ gs^.menuState.at Vendor
+gsIsVendoring gs = isJust $ gs^.vendorMenu
+
+gmCursorModification :: (Int -> Int) -> GameState -> Maybe GameState
+gmCursorModification action gs =
+  activeMenuCursorModification <|> vendorCursorModification
+ where
+  activeMenuCursorModification = do
+    handler <- gmActiveMenuHandler gs
+
+    let items = filter (menuFilter handler) (gs^.itemLens handler)
+        menu_selection = fromMaybe 0 $ gs^?activeMenuState.at (menuStateKey handler)._Just._2
+        max_selection = M.size (groupItems items)-1
+        current_selection = max 0 $ min max_selection menu_selection
+        new_selection = action current_selection
+
+    guard (new_selection >= 0 && new_selection <= max_selection)
+
+    return $ gs & activeMenuState.at (menuStateKey handler)._Just._2 .~ new_selection
+
+  vendorCursorModification = do
+    old_selection <- gs^.vendorMenu
+    vendor <- gmCurrentVendorCreature gs
+
+    let vitems = vendorItems vendor
+        gitems = groupItems vitems
+        max_selection = M.size gitems-1
+        new_selection = action old_selection
+
+    guard (new_selection >= 0 && new_selection <= max_selection)
+
+    return $ gs & vendorMenu .~ Just new_selection
+
+gmMenuSelections :: GameState -> (Maybe (S.Set Int))
+gmMenuSelections gs = do
+  handler <- gmActiveMenuHandler gs
+  guard (selectMode handler == MultiSelect)
+  gs^?activeMenuState.at (menuStateKey handler)._Just._1
+
+gmMenuCursor :: GameState -> Maybe Int
+gmMenuCursor gs = do
+  handler <- gmActiveMenuHandler gs
+
+  let items = filter (menuFilter handler) (gs^.itemLens handler)
+      menu_selection = fromMaybe 0 $ gs^?activeMenuState.at (menuStateKey handler)._Just._2
+      max_selection = M.size (groupItems items)-1
+      current_selection = max 0 $ min max_selection menu_selection
+
+  return current_selection
+
+gmSelectToggleCursorItem :: GameState -> Maybe GameState
+gmSelectToggleCursorItem gs = do
+  handler <- gmActiveMenuHandler gs
+  cursor <- gmMenuCursor gs
+  return $ gs & activeMenuState.at (menuStateKey handler)._Just._1 %~ \set ->
+    if S.member cursor set
+      then S.delete cursor set
+      else S.insert cursor set
+
+gmIncreaseMenuCursor :: GameState -> Maybe GameState
+gmIncreaseMenuCursor = gmCursorModification (+1)
+
+gmDecreaseMenuCursor :: GameState -> Maybe GameState
+gmDecreaseMenuCursor = gmCursorModification (\x -> x - 1)
 
