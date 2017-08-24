@@ -11,7 +11,6 @@ import Prelude ( String )
 import Protolude hiding ( to, drop )
 
 import Submarination.GameState
-import Submarination.GameState.Types
 import Submarination.Item
 import Submarination.Render
 import Submarination.Terminal
@@ -35,17 +34,17 @@ splashScreen knob = do
 #ifndef GHCJS_BROWSER
     'q' -> return ()
 #endif
-    ' ' -> evalStateT (startGame knob) startGameState
+    ' ' -> evalStateT (startGame knob) initialGameState
     _ -> splashScreen knob
 
 startGame :: MonadIO m => UpdateRequestStateKnob -> GameMonad m ()
 startGame knob = do
-  cycleGame
+  modify gsCycleGame
   game_state <- gm identity
   showGameState knob game_state
 
-  in_active_menu <- gm inActiveMenu
-  in_vendor <- gm (^.menuState.at Vendor . to isJust)
+  in_active_menu <- gm gsInActiveMenu
+  in_vendor <- gm gsIsVendoring
   gs <- gm identity
 
   ch <- getInputChar
@@ -55,15 +54,15 @@ startGame knob = do
 #endif
     ch -> do
       case ch of
-        dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) && not in_active_menu -> do
-          move dir_ch
+        dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) && not in_active_menu ->
+          modifyConditional $ move dir_ch
 
         -- Item menus
-        ch | gs^?to getActiveMenuHandler._Just.to offKeys.to (ch `S.member`) == Just True ->
+        ch | gs^?to gmActiveMenuHandler._Just.to offKeys.to (ch `S.member`) == Just True ->
           itemMenuOff
-        ch | gs^?to getActiveMenuHandler._Just.to menuKeys.to (ch `M.member`) == Just True ->
+        ch | gs^?to gmActiveMenuHandler._Just.to menuKeys.to (ch `M.member`) == Just True ->
           itemMenuAction ch
-        ch | Just ms <- keyToMenuStateTrigger ch ->
+        ch | Just ms <- menuKeyToMenuStateTrigger ch ->
           itemTrigger ms
         ' ' | in_active_menu ->
           itemMenuOff
@@ -83,7 +82,7 @@ startGame knob = do
       startGame knob
 
 itemMenuAction :: Monad m => Char -> GameMonad m ()
-itemMenuAction ch = use (to getActiveMenuHandler) >>= \case
+itemMenuAction ch = use (to gmActiveMenuHandler) >>= \case
   Just handler | Just (_, action) <- menuKeys handler^.at ch -> do
     gs <- gm identity
     case action gs of
@@ -95,46 +94,38 @@ itemMenuAction ch = use (to getActiveMenuHandler) >>= \case
   _ -> return ()
 
 drag :: Monad m => GameMonad m ()
-drag = use (player.playerDragging) >>= \case
+drag = use (glPlayer.playerDragging) >>= \case
   Nothing -> startDragging
   Just bulky_item -> stopDragging bulky_item
  where
-  stopDragging bulky_item = do
+  stopDragging bulky_item =
     -- Can't stop if there is already a bulky item here
-    player_pos <- gm (^.player.playerPosition)
-    use (levelBulkyItemAt player_pos) >>= \case
+    use (gllAtPlayer glBulkyItemAt) >>= \case
       Nothing -> do
-        levelBulkyItemAt player_pos .= Just bulky_item
-        player.playerDragging .= Nothing
+        gllAtPlayer glBulkyItemAt .= Just bulky_item
+        glPlayer.playerDragging .= Nothing
 
-        advanceTurn
+        modify gsAdvanceTurn
 
       Just _existing_bulky_item -> return ()
 
-  startDragging = do
-    player_pos <- gm (^.player.playerPosition)
-    use (levelBulkyItemAt player_pos) >>= \case
+  startDragging =
+    use (gllAtPlayer glBulkyItemAt) >>= \case
       Nothing -> return ()
       Just bulky_item -> do
-        levelBulkyItemAt player_pos .= Nothing
-        player.playerDragging .= Just bulky_item
+        gllAtPlayer glBulkyItemAt .= Nothing
+        glPlayer.playerDragging .= Just bulky_item
 
-        advanceTurn
+        modify gsAdvanceTurn
 
 itemTrigger :: Monad m => MenuState -> GameMonad m ()
-itemTrigger ms = do
-  old_state <- use (menuState.at ms)
-  case old_state of
-    Nothing -> menuState.at ms .= Just 0
-    Just{}  -> menuState.at ms .= Nothing
+itemTrigger = modify . gsEnterMenu
 
 itemMenuOff :: Monad m => GameMonad m ()
-itemMenuOff = gm getActiveMenu >>= \case
-  Just ms -> menuState. at ms .= Nothing
-  _ -> return ()
+itemMenuOff = modifyConditional gmCloseMenu
 
 itemMenu :: Monad m => Char -> GameMonad m ()
-itemMenu ch = gm getActiveMenuHandler >>= \case
+itemMenu ch = gm gmActiveMenuHandler >>= \case
   Nothing -> return ()
   Just handler -> do
     items <- filter (menuFilter handler) <$> gm (^.itemLens handler)
@@ -150,34 +141,41 @@ itemMenu ch = gm getActiveMenuHandler >>= \case
       _ -> return ()
 
 vendorMenu :: Monad m => Char -> GameMonad m ()
-vendorMenu ch = ((,) <$> gm getCurrentVendor <*> gm (^.currentVendorMenuSelection)) >>= \case
+vendorMenu ch = ((,) <$> gm gmCurrentVendorCreature <*> gm (^.glCurrentVendorMenuSelection)) >>= \case
   (Just vendor, Just current_selection') -> do
     let items = vendorItems vendor
         current_selection = max 0 $ min (length items-1) current_selection'
     case ch of
-      'a' | current_selection > 0 -> currentVendorMenuSelection .= (Just $ current_selection-1)
-      'z' | current_selection < length items-1 -> currentVendorMenuSelection .= (Just $ current_selection+1)
-      ' ' -> modify attemptPurchase
+      'a' | current_selection > 0 -> glCurrentVendorMenuSelection .= (Just $ current_selection-1)
+      'z' | current_selection < length items-1 -> glCurrentVendorMenuSelection .= (Just $ current_selection+1)
+      ' ' -> modifyConditional gmAttemptPurchase
       _ -> return ()
 
   _ -> return ()
 
-move :: Monad m => Char -> GameMonad m ()
-move 'j' = moveDirection D2
-move 'k' = moveDirection D8
-move 'h' = moveDirection D4
-move 'l' = moveDirection D6
-move 'y' = moveDirection D7
-move 'u' = moveDirection D9
-move 'b' = moveDirection D1
-move 'n' = moveDirection D3
-move '2' = moveDirection D2
-move '8' = moveDirection D8
-move '4' = moveDirection D4
-move '6' = moveDirection D6
-move '7' = moveDirection D7
-move '9' = moveDirection D9
-move '1' = moveDirection D1
-move '3' = moveDirection D3
-move _ = return ()
+modifyConditional :: MonadState s m => (s -> Maybe s) -> m ()
+modifyConditional modifier = do
+  old <- get
+  case modifier old of
+    Nothing -> return ()
+    Just new -> put new
+
+move :: Char -> (GameState -> Maybe GameState)
+move 'j' = gmMoveToDirection D2
+move 'k' = gmMoveToDirection D8
+move 'h' = gmMoveToDirection D4
+move 'l' = gmMoveToDirection D6
+move 'y' = gmMoveToDirection D7
+move 'u' = gmMoveToDirection D9
+move 'b' = gmMoveToDirection D1
+move 'n' = gmMoveToDirection D3
+move '2' = gmMoveToDirection D2
+move '8' = gmMoveToDirection D8
+move '4' = gmMoveToDirection D4
+move '6' = gmMoveToDirection D6
+move '7' = gmMoveToDirection D7
+move '9' = gmMoveToDirection D9
+move '1' = gmMoveToDirection D1
+move '3' = gmMoveToDirection D3
+move _ = const Nothing
 

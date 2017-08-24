@@ -7,7 +7,7 @@ module Submarination.GameState.Types
   , turn
   , levels
   , Sub(..)
-  , topology
+  , subTopology
   , subPosition
   , Player(..)
   , playerPosition
@@ -22,9 +22,9 @@ module Submarination.GameState.Types
   , ItemMenuHandler(..)
   , itemsAtPlayer
   , subOrLevelLens
-  , levelCellAt
-  , levelItemsAt
-  , currentLevel
+  , glCellAt
+  , glItemsAt
+  , glCurrentLevel
   , HasGameState(..) )
   where
 
@@ -48,7 +48,7 @@ data MenuState
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
 
 data Sub = Sub
-  { _topology :: !SubTopology
+  { _subTopology :: !SubTopology
   , _subPosition :: !(V2 Int) }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
@@ -78,19 +78,19 @@ makeLenses ''GameState
 makeLenses ''Player
 makeLenses ''Sub
 
-levelCellAt :: V2 Int -> Lens' GameState LevelCell
-levelCellAt = subOrLevelLens cellAt subCellP
-{-# INLINE levelCellAt #-}
+glCellAt :: V2 Int -> Lens' GameState LevelCell
+glCellAt = subOrLevelLens cellAt subCellP
+{-# INLINE glCellAt #-}
 
-levelItemsAt :: V2 Int -> Lens' GameState [Item]
-levelItemsAt = subOrLevelLens itemsAt subItemsP
-{-# INLINE levelItemsAt #-}
+glItemsAt :: V2 Int -> Lens' GameState [Item]
+glItemsAt = subOrLevelLens itemsAt subItemsP
+{-# INLINE glItemsAt #-}
 
 itemsAtPlayer :: Lens' GameState [Item]
 itemsAtPlayer = lens get_it set_it
  where
-  get_it gs = gs^.levelItemsAt (gs^.player.playerPosition)
-  set_it gs new_items = gs & levelItemsAt (gs^.player.playerPosition) .~ new_items
+  get_it gs = gs^.glItemsAt (gs^.player.playerPosition)
+  set_it gs new_items = gs & glItemsAt (gs^.player.playerPosition) .~ new_items
 
 subOrLevelLens :: forall a.
                   (V2 Int -> Lens' Level a)
@@ -105,28 +105,28 @@ subOrLevelLens level_lens sub_lens coords@(V2 x y) = lens get_it set_it
       then level_cell
       -- If we *are* inside sub bounding box, attempt to look up sub level cell
       -- instead.
-      else fromMaybe level_cell $ case gamestate^..sub.topology.sub_lens (V2 (x-sx) (y-sy)) of
+      else fromMaybe level_cell $ case gamestate^..sub.subTopology.sub_lens (V2 (x-sx) (y-sy)) of
              [target] -> Just target
              _ -> Nothing
    where
-    level_cell = gamestate^.currentLevel.level_lens coords
+    level_cell = gamestate^.glCurrentLevel.level_lens coords
 
     V2 sx sy = gamestate^.sub.subPosition
-    V2 sw sh = subSize (gamestate^.sub.topology)
+    V2 sw sh = subSize (gamestate^.sub.subTopology)
 
   set_it :: GameState -> a -> GameState
   set_it gamestate new_cell =
-    gamestate & failing (sub.topology.sub_lens (V2 (x-sx) (y-sy))) (currentLevel.level_lens coords) .~ new_cell
+    gamestate & failing (sub.subTopology.sub_lens (V2 (x-sx) (y-sy))) (glCurrentLevel.level_lens coords) .~ new_cell
    where
     V2 sx sy = gamestate^.sub.subPosition
 {-# INLINE subOrLevelLens #-}
 
-currentLevel :: Lens' GameState Level
-currentLevel = lens get_it set_it
+glCurrentLevel :: Lens' GameState Level
+glCurrentLevel = lens get_it set_it
  where
   get_it gs = fromJust $ M.lookup (gs^.depth) (gs^.levels)
   set_it gs new_level = gs & levels.at (gs^.depth) .~ Just new_level
-{-# INLINE currentLevel #-}
+{-# INLINE glCurrentLevel #-}
 
 data ItemMenuHandler = ItemMenuHandler
   { triggerKeys   :: S.Set Char

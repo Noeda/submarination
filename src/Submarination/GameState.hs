@@ -1,6 +1,83 @@
-module Submarination.GameState where
+module Submarination.GameState
+  ( 
+  -- * Directions
+    Direction(..)
+  , allNeighbours
+  , directionToDelta
+  -- * Monad tools
+  , GameMonad
+  , GameMonadRo
+  , gm
+  , gr
+  -- * Game state
+  , initialGameState
+  , GameState()
+  , gsAdvanceTurn
+  , gsCycleGame
+  , gsTurn
+  , gmMoveToDirection
+  -- * Level manipulation
+  , gsCurrentAreaName
+  , gsCurrentLevel
+  , gsIsOnSurface
+  , gsIsOccupied
+  , glActiveMetadataAt
+  , glCellAt
+  , glItemsAt
+  -- ** Level items
+  , gmAddItemInventory
+  , glBulkyItemAt
+  , inventoryLimit
+  -- * Predefined levels
+  , surfaceLevel
+  -- * Statuses
+  , gsCurrentStatuses
+  , gsIsSlow
+  -- ** Status utilities
+  , statusName
+  , Status(..)
+  -- * Player properties
+  , gsMaximumOxygenLevel
+  , glPlayer
+  , gllAtPlayer
+  , playerDragging
+  , playerHealth
+  , playerInventory
+  , playerMaximumHealth
+  , playerOxygen
+  , playerPosition
+  , playerShells
+  , Player()
+  -- * Submarine propertries
+  , glSub
+  , subPosition
+  , subTopology
+  , Sub()
+  -- * Menus
+  , gsEnterMenu
+  , gsInActiveMenu
+  , gsIsMenuActive
+  , gmActiveMenuHandler
+  , gmActiveMenu
+  , gmCurrentlySelectedItem
+  , gmCurrentlySelectedInventoryItem
+  , gmCloseMenu
+  , glCurrentMenuSelection
+  , MenuState(..)
+  -- ** Menu utilities
+  , menuKeyToMenuStateTrigger
+  , menuItemHandler
+  , ItemMenuHandler(..)
+  -- ** Vendor stuff
+  , gsCurrentVendorItemSelection
+  , gsIsVendoring
+  , gmAttemptPurchase
+  , gmCurrentVendorCreature
+  , glCurrentVendorMenuSelection )
+  where
 
 import Control.Monad.Trans.Except
+import Control.Monad.Trans.Maybe
 import Control.Lens hiding ( Level, levels )
 import Data.Data
 import qualified Data.Map.Strict as M
@@ -43,24 +120,21 @@ allNeighbours (V2 x y) =
   ,V2 (x-1) (y+1)
   ,V2 (x+1) (y-1)]
 
+directionToDelta :: Direction -> V2 Int
+directionToDelta D2 = V2 0 1
+directionToDelta D8 = V2 0 (-1)
+directionToDelta D4 = V2 (-1) 0
+directionToDelta D6 = V2 1 0
+directionToDelta D7 = V2 (-1) (-1)
+directionToDelta D9 = V2 1 (-1)
+directionToDelta D3 = V2 1 1
+directionToDelta D1 = V2 (-1) 1
+
 type GameMonad m = StateT GameState m
 type GameMonadRo m = ReaderT GameState m
 
-data SelectGroundItemResult
-  = NoItems
-  | PickedUp !Item
-  | NeedItemMenu
-  deriving ( Eq, Ord, Show, Read, Data, Typeable, Generic )
-
-currentlySelectedGroundItem :: GameState -> SelectGroundItemResult
-currentlySelectedGroundItem gs =
-  case filter (not . isItemBulky) $ gs^.levelItemsAt (gs^.player.playerPosition) of
-    [single_item] -> PickedUp single_item
-    [] -> NoItems
-    _many_items -> NeedItemMenu
-
-startGameState :: GameState
-startGameState = GameState
+initialGameState :: GameState
+initialGameState = GameState
   { _player = Player { _playerPosition = V2 15 8
                      , _playerMaximumHealth = 100
                      , _playerHealth = 100
@@ -72,7 +146,7 @@ startGameState = GameState
   , _turn = 1
   , _levels = M.singleton 0 surfaceLevel
   , _sub = Sub { _subPosition = V2 23 (-2)
-               , _topology = initial_sub_topo }
+               , _subTopology = initial_sub_topo }
   , _depth  = 0 }
  where
   initial_sub_topo =
@@ -87,28 +161,45 @@ startGameState = GameState
 
   placeStorageBox = subItemsP (V2 6 1) .~ [StorageBox []]
 
-currentStatuses :: GameState -> S.Set Status
-currentStatuses gs =
-  if isSlow gs then S.singleton Slow else S.empty
+glSub :: Lens' GameState Sub
+glSub = sub
+{-# INLINE glSub #-}
 
-isSlow :: GameState -> Bool
-isSlow gs = isJust $ gs^.player.playerDragging
+glPlayer :: Lens' GameState Player
+glPlayer = player
+{-# INLINE glPlayer #-}
 
-currentVendorMenuSelection :: Lens' GameState (Maybe Int)
-currentVendorMenuSelection = lens get_it set_it
+gllAtPlayer :: (V2 Int -> Lens' GameState a) -> Lens' GameState a
+gllAtPlayer inner_lens = lens get_it set_it
+ where
+  get_it gs = gs^.inner_lens (gs^.player.playerPosition)
+
+  set_it gs new_value =
+    gs & inner_lens (gs^.player.playerPosition) .~ new_value
+{-# INLINE gllAtPlayer #-}
+
+gsCurrentStatuses :: GameState -> S.Set Status
+gsCurrentStatuses gs =
+  if gsIsSlow gs then S.singleton Slow else S.empty
+
+gsIsSlow :: GameState -> Bool
+gsIsSlow gs = isJust $ gs^.player.playerDragging
+
+glCurrentMenuSelection :: MenuState -> Lens' GameState (Maybe Int)
+glCurrentMenuSelection ms = menuState.at ms
+
+glCurrentVendorMenuSelection :: Lens' GameState (Maybe Int)
+glCurrentVendorMenuSelection = lens get_it set_it
  where
   get_it gs = 
     M.lookup Vendor (gs^.menuState)
   set_it gs new_selection =
     gs & menuState.at Vendor .~ new_selection
 
-currentMenuSelection :: MenuState -> Lens' GameState (Maybe Int)
-currentMenuSelection ms = menuState.at ms
-
-currentVendorItemSelection :: GameState -> Maybe Item
-currentVendorItemSelection gs = do
-  vendor <- getCurrentVendor gs
-  current_selection' <- gs^.currentVendorMenuSelection
+gsCurrentVendorItemSelection :: GameState -> Maybe Item
+gsCurrentVendorItemSelection gs = do
+  vendor <- gmCurrentVendorCreature gs
+  current_selection' <- gs^.glCurrentVendorMenuSelection
 
   let current_selection = max 0 $ min (length items-1) current_selection'
       items = vendorItems vendor
@@ -128,39 +219,28 @@ gr action = do
   return $ action $ env^.gameState
 {-# INLINE gr #-}
 
-directionToDelta :: Direction -> V2 Int
-directionToDelta D2 = V2 0 1
-directionToDelta D8 = V2 0 (-1)
-directionToDelta D4 = V2 (-1) 0
-directionToDelta D6 = V2 1 0
-directionToDelta D7 = V2 (-1) (-1)
-directionToDelta D9 = V2 1 (-1)
-directionToDelta D3 = V2 1 1
-directionToDelta D1 = V2 (-1) 1
+gsTurn :: GameState -> Int
+gsTurn gs = gs^.turn
 
-advanceTurn :: forall m. Monad m => GameMonad m ()
-advanceTurn = do
+gsAdvanceTurn :: GameState -> GameState
+gsAdvanceTurn = execState $ do
   turn += 1
   walkActiveMetadata
  where
-  walkActiveMetadata :: GameMonad m ()
   walkActiveMetadata = do
     walkCurrentLevelMetadata
     walkSubLevelMetadata
 
-  walkCurrentLevelMetadata :: GameMonad m ()
   walkCurrentLevelMetadata = do
-    lvl <- use currentLevel
+    lvl <- use glCurrentLevel
     new_level <- walkLevel (lvl, V2 0 0)
-    currentLevel .= new_level
+    glCurrentLevel .= new_level
 
-  walkSubLevelMetadata :: GameMonad m ()
   walkSubLevelMetadata = do
-    topo <- use $ sub.topology
+    topo <- use $ sub.subTopology
     new_sub_topo <- forOf subLevelsWithOffset topo walkLevel
-    sub.topology .= new_sub_topo
+    sub.subTopology .= new_sub_topo
 
-  walkLevel :: (Level, V2 Int) -> GameMonad m Level
   walkLevel (lvl, offset) = do
     current_turn <- use turn
     playerpos <- use $ player.playerPosition
@@ -172,43 +252,44 @@ advanceTurn = do
         (OpenHatch, Just metadata)
       (feature, _) -> (feature, Nothing)
 
-moveDirection :: Monad m => Direction -> GameMonad m ()
-moveDirection direction = do
-  old_pos <- gm (^.player.playerPosition)
+gmMoveToDirection :: Direction -> GameState -> Maybe GameState
+gmMoveToDirection direction gs = flip evalState gs $ runMaybeT $ do
+  old_pos <- use (player.playerPosition)
   let new_playerpos = old_pos + directionToDelta direction
 
-  lcell <- gm (^.levelCellAt new_playerpos)
-
   -- Is it a hatch? (that I can open)
-  if lcell == Hatch
-    then openHatch new_playerpos
-    else notHatch lcell new_playerpos
+  openHatch new_playerpos <|> notHatch new_playerpos
+  get
  where
   openHatch new_playerpos = do
+    lcell <- use (glCellAt new_playerpos)
+    guard (lcell == Hatch)
+
     current_turn <- use turn
 
-    levelCellAt new_playerpos .= OpenHatch
-    levelActiveMetadataAt new_playerpos .= (Just $ HatchAutoClose (current_turn+5))
-    advanceTurn
+    glCellAt new_playerpos .= OpenHatch
+    glActiveMetadataAt new_playerpos .= (Just $ HatchAutoClose (current_turn+5))
+    identity %= gsAdvanceTurn
 
+  notHatch new_playerpos = do
+    lcell <- use (glCellAt new_playerpos)
 
-  notHatch lcell new_playerpos = do
     -- Can I walk there?
     let walkable = isWalkable lcell
     -- Is there some monster in there?
-    occupied <- gm $ isOccupied new_playerpos
+    occupied <- use $ to (gsIsOccupied new_playerpos)
     -- Are we dragging something and there is something bulky in target?
-    dragging <- gm (^.player.playerDragging.to isJust)
-    bulky_at_target <- gm (^.levelBulkyItemAt new_playerpos.to isJust)
+    dragging <- use $ player.playerDragging.to isJust
+    bulky_at_target <- use (glBulkyItemAt new_playerpos.to isJust)
 
     when (walkable && not occupied && not (bulky_at_target && dragging)) $ do
       player.playerPosition .= new_playerpos
 
       -- Moving takes extra time if we are slow
-      slow <- gm isSlow
-      when slow advanceTurn
+      slow <- use $ to gsIsSlow
+      when slow $ identity %= gsAdvanceTurn
 
-      advanceTurn
+      identity %= gsAdvanceTurn
 
 surfaceLevel :: Level
 surfaceLevel = levelFromStringsPlacements SurfaceWater placements
@@ -251,45 +332,46 @@ surfaceLevel = levelFromStringsPlacements SurfaceWater placements
     ,(3, ('g', placeCreature toolVendor))
     ,(4, ('g', placeCreature materialVendor))]
 
-getMaximumOxygenLevel :: GameState -> Int
-getMaximumOxygenLevel _ = 100
+gsMaximumOxygenLevel :: GameState -> Int
+gsMaximumOxygenLevel _ = 100
 
-
-levelActiveMetadataAt :: V2 Int -> Lens' GameState (Maybe LevelActiveMetadata)
-levelActiveMetadataAt =
+glActiveMetadataAt :: V2 Int -> Lens' GameState (Maybe LevelActiveMetadata)
+glActiveMetadataAt =
   subOrLevelLens activeMetadataAt subActiveMetadataAt
 
-levelBulkyItemAt :: V2 Int -> Lens' GameState (Maybe Item)
-levelBulkyItemAt coords = lens get_it set_it
+glBulkyItemAt :: V2 Int -> Lens' GameState (Maybe Item)
+glBulkyItemAt coords = lens get_it set_it
  where
   get_it gs =
-    let items = gs^.levelItemsAt coords
+    let items = gs^.glItemsAt coords
      in find isItemBulky items
 
   -- some sanity checking
   set_it _ (Just bulky_item) | not (isItemBulky bulky_item) = E.error "levelBulkyItemAt: Item is not bulky."
   set_it gs (Just bulky_item) =
     -- To satisfy lens laws, we must remove any existing bulky item from target
-    let items = gs^.levelItemsAt coords
+    let items = gs^.glItemsAt coords
      in case find isItemBulky items of
-          Nothing -> gs & levelItemsAt coords .~ (bulky_item:items)
+          Nothing -> gs & glItemsAt coords .~ (bulky_item:items)
           Just existing_item ->
             let fitems = filter (/= existing_item) items
-             in gs & levelItemsAt coords .~ (bulky_item:fitems)
+             in gs & glItemsAt coords .~ (bulky_item:fitems)
 
-  set_it gs Nothing = gs & levelItemsAt coords %~ filter (not . isItemBulky)
-{-# INLINEABLE levelBulkyItemAt #-}
+  set_it gs Nothing = gs & glItemsAt coords %~ filter (not . isItemBulky)
 
-currentAreaName :: GameState -> Text
-currentAreaName _ = "--- SURFACE ---"
+gsCurrentLevel :: GameState -> Level
+gsCurrentLevel gs = gs^.glCurrentLevel
 
-isOccupied :: V2 Int -> GameState -> Bool
-isOccupied coords gamestate =
-  let cr = gamestate^.currentLevel
+gsCurrentAreaName :: GameState -> Text
+gsCurrentAreaName _ = "--- SURFACE ---"
+
+gsIsOccupied :: V2 Int -> GameState -> Bool
+gsIsOccupied coords gamestate =
+  let cr = gamestate^.glCurrentLevel
    in isJust $ cr^.creatures.at coords
 
-isOnSurface :: GameState -> Bool
-isOnSurface gs = gs^.depth == 0
+gsIsOnSurface :: GameState -> Bool
+gsIsOnSurface gs = gs^.depth == 0
 
 inventoryLimit :: Int
 inventoryLimit = 20
@@ -300,34 +382,15 @@ runMaybeExcept action =
     Left value -> Just value
     _ -> Nothing
 
-addItemInventory :: Item -> Prism' GameState GameState
-addItemInventory item =
-  prism' identity $ \gs ->
-    if length (gs^.player.playerInventory) >= inventoryLimit
-      then Nothing
-      else Just $ gs & player.playerInventory %~ (item:)
+gmAddItemInventory :: Item -> GameState -> Maybe GameState
+gmAddItemInventory item gs =
+  if length (gs^.player.playerInventory) >= inventoryLimit
+    then Nothing
+    else Just $ gs & player.playerInventory %~ (item:)
 
-removeOneItemFromGround :: Item -> Prism' GameState GameState
-removeOneItemFromGround item =
-  prism' identity $ \gs ->
-    let items = gs^.levelItemsAt (gs^.player.playerPosition)
-     in case delete item items of
-          new_items | new_items /= items ->
-            Just $ gs & levelItemsAt (gs^.player.playerPosition) .~ new_items
-          _ -> Nothing
-
-attemptPickUpItemOrGoToMenu :: Prism' GameState GameState
-attemptPickUpItemOrGoToMenu =
-  prism' identity $ \gs ->
-    case currentlySelectedGroundItem gs of
-      PickedUp single_item ->
-        gs ^? removeOneItemFromGround single_item .
-              addItemInventory single_item
-      _ -> Nothing
-
-attemptPurchase :: GameState -> GameState
-attemptPurchase gs = fromMaybe gs $ do
-  item_selection <- currentVendorItemSelection gs
+gmAttemptPurchase :: GameState -> Maybe GameState
+gmAttemptPurchase gs = do
+  item_selection <- gsCurrentVendorItemSelection gs
   let playerpos = gs^.player.playerPosition
       shells = gs^.player.playerShells
 
@@ -338,20 +401,20 @@ attemptPurchase gs = fromMaybe gs $ do
       -- Cannot buy bulky item if dragging something
       guard (isNothing $ gs^.player.playerDragging)
       -- Cannot buy bulky item if bulky item already on floor
-      guard (isNothing $ gs^.levelBulkyItemAt playerpos)
+      guard (isNothing $ gs^.glBulkyItemAt playerpos)
 
       -- Put bulky item for dragging
       return $ gs & (player.playerShells -~ itemPrice item_selection) .
                     (player.playerDragging .~ Just item_selection)
 
-    else return $ case gs^?addItemInventory item_selection of
+    else return $ case gs^.to (gmAddItemInventory item_selection) of
            Nothing -> gs
            Just new_gs -> new_gs & player.playerShells -~ itemPrice item_selection
 
-getCurrentVendor :: GameState -> Maybe Creature
-getCurrentVendor gs = runMaybeExcept $ do
+gmCurrentVendorCreature :: GameState -> Maybe Creature
+gmCurrentVendorCreature gs = runMaybeExcept $ do
   let playerpos = gs^.player.playerPosition
-      lvl = gs^.currentLevel
+      lvl = gs^.glCurrentLevel
 
   for_ (allNeighbours playerpos) $ \candidate_pos ->
     case lvl^.creatures.at candidate_pos of
@@ -361,31 +424,16 @@ getCurrentVendor gs = runMaybeExcept $ do
       Just ToolVendor -> throwE ToolVendor
       _ -> return ()
 
-currentlySelectedMenuItemLens :: MenuState -> (Lens' GameState [Item]) -> Getter GameState (Maybe Item)
-currentlySelectedMenuItemLens menu_state item_get = to $ \gs -> do
-  selection <- gs^.menuState.at menu_state
-  let items = (gs^.item_get.to groupItems.to M.assocs)
-  guard (selection >= 0 && selection < length items)
-  return $ fst $ items !! selection
-
-currentSelectedInventoryItem :: Getter GameState (Maybe Item)
-currentSelectedInventoryItem = currentlySelectedMenuItemLens Inventory (player.playerInventory)
-
-getActiveMenuHandler :: GameState -> Maybe ItemMenuHandler
-getActiveMenuHandler gs =
+gmActiveMenuHandler :: GameState -> Maybe ItemMenuHandler
+gmActiveMenuHandler gs =
   ch Inventory <|> ch Pickup
  where
   ch ms = case gs^.menuState.at ms of
     Nothing -> Nothing
-    Just _index -> itemHandler ms
+    Just _index -> menuItemHandler ms
 
-currentlySelectedPickupItem :: Getter GameState (Maybe Item)
-currentlySelectedPickupItem = to $ \gs ->
-  let playerpos = gs^.player.playerPosition
-   in gs^.currentlySelectedMenuItemLens Pickup (levelItemsAt playerpos)
-
-getActiveMenu :: GameState -> Maybe MenuState
-getActiveMenu gs =
+gmActiveMenu :: GameState -> Maybe MenuState
+gmActiveMenu gs =
   if | Inventory `M.member` menus -> Just Inventory
      | Pickup    `M.member` menus -> Just Pickup
 
@@ -393,9 +441,51 @@ getActiveMenu gs =
  where
   menus = gs^.menuState
 
-currentlySelectedItem :: Getter GameState (Maybe Item)
-currentlySelectedItem = to $ \gs -> do
-  handler <- getActiveMenuHandler gs
+gmCloseMenu :: GameState -> Maybe GameState
+gmCloseMenu gs = do
+  active_menu <- gmActiveMenu gs
+  return $ gs & menuState.at active_menu .~ Nothing
+
+gsEnterMenu :: MenuState -> GameState -> GameState
+gsEnterMenu ms = menuState.at ms .~ Just 0
+
+gsCycleGame :: GameState -> GameState
+gsCycleGame = execState $ do
+  gs <- get
+
+  -- Enter vendor menu if not currently next to vendor.
+  case gmCurrentVendorCreature gs of
+    Nothing -> glCurrentVendorMenuSelection .= Nothing
+    Just _vendor ->
+      when (isNothing $ gs^.glCurrentVendorMenuSelection) $
+        glCurrentVendorMenuSelection .= Just 0
+
+  -- Inventory selection must be within range
+  case gs^.menuState.at Inventory of
+    Just _selection -> case gmCurrentlySelectedInventoryItem gs of
+      Nothing -> menuState.at Inventory .= Just 0
+      _ -> return ()
+    _ -> return ()
+
+gsInActiveMenu :: GameState -> Bool
+gsInActiveMenu = isJust . gmActiveMenu
+
+gsIsMenuActive :: MenuState -> GameState -> Bool
+gsIsMenuActive ms gs = gs^.menuState.to (ms `M.member`)
+
+menuKeyToMenuStateTrigger :: Char -> Maybe MenuState
+menuKeyToMenuStateTrigger ch = go menu_states
+ where
+  menu_states = enumFrom (toEnum 0)
+
+  go [] = Nothing
+  go (candidate:rest) = case menuItemHandler candidate of
+    Just handler | ch `S.member` triggerKeys handler -> Just candidate
+    _ -> go rest
+
+gmCurrentlySelectedItem :: GameState -> Maybe Item
+gmCurrentlySelectedItem gs = do
+  handler <- gmActiveMenuHandler gs
   let items = filter (menuFilter handler) (gs^.itemLens handler)
       gitems = groupItems items
 
@@ -407,69 +497,53 @@ currentlySelectedItem = to $ \gs -> do
 
   return $ fst $ M.assocs gitems !! current_selection
 
-pickUpItem :: Getter GameState (Maybe GameState)
-pickUpItem = to $ \gs -> do
-  guard (getActiveMenu gs == Just Pickup)
-  handler <- getActiveMenuHandler gs
-  item <- gs^.currentlySelectedItem
+currentlySelectedMenuItemLens :: MenuState -> Lens' GameState [Item] -> Getter GameState (Maybe Item)
+currentlySelectedMenuItemLens menu_state item_get = to $ \gs -> do
+  selection <- gs^.menuState.at menu_state
+  let items = gs^.item_get.to groupItems.to M.assocs
+  guard (selection >= 0 && selection < length items)
+  return $ fst $ items !! selection
 
-  new_gs <- gs^?addItemInventory item
+gmCurrentlySelectedInventoryItem :: GameState -> Maybe Item
+gmCurrentlySelectedInventoryItem gs =
+  gs^.currentlySelectedMenuItemLens Inventory (player.playerInventory)
+
+gmDropInventoryItem :: GameState -> Maybe GameState
+gmDropInventoryItem gs = do
+  selected_inventory_item <- gmCurrentlySelectedInventoryItem gs
+  return $ gs & (player.playerInventory %~ delete selected_inventory_item) .
+                (glItemsAt (gs^.player.playerPosition) %~ (:) selected_inventory_item)
+
+
+gmPickUpItem :: GameState -> Maybe GameState
+gmPickUpItem gs = do
+  guard (gmActiveMenu gs == Just Pickup)
+  handler <- gmActiveMenuHandler gs
+  item <- gmCurrentlySelectedItem gs
+
+  new_gs <- gs^.to (gmAddItemInventory item)
   return $ new_gs & (itemLens handler %~ delete item)
 
-dropInventoryItem :: Getter GameState (Maybe GameState)
-dropInventoryItem = to $ \gs -> do
-  selected_inventory_item <- gs^.currentSelectedInventoryItem
-  return $ gs & (player.playerInventory %~ delete selected_inventory_item) .
-                (levelItemsAt (gs^.player.playerPosition) %~ ((:) selected_inventory_item))
-
-cycleGame :: Monad m => GameMonad m ()
-cycleGame = do
-  gs <- get
-
-  -- Enter vendor menu if not currently next to vendor.
-  case getCurrentVendor gs of
-    Nothing -> currentVendorMenuSelection .= Nothing
-    Just _vendor ->
-      when (isNothing $ gs^.currentVendorMenuSelection) $
-        currentVendorMenuSelection .= Just 0
-
-  -- Inventory selection must be within range
-  case gs^.menuState.at Inventory of
-    Just _selection -> case gs^.currentSelectedInventoryItem of
-      Nothing -> menuState.at Inventory .= Just 0
-      _ -> return ()
-    _ -> return ()
-
-inActiveMenu :: GameState -> Bool
-inActiveMenu = isJust . getActiveMenu
-
-keyToMenuStateTrigger :: Char -> Maybe MenuState
-keyToMenuStateTrigger ch = go menu_states
- where
-  menu_states = enumFrom (toEnum 0)
-
-  go [] = Nothing
-  go (candidate:rest) = case itemHandler candidate of
-    Just handler | ch `S.member` triggerKeys handler -> Just candidate
-    _ -> go rest
-
-itemHandler :: MenuState -> Maybe ItemMenuHandler
-itemHandler Inventory = Just $ ItemMenuHandler
+menuItemHandler :: MenuState -> Maybe ItemMenuHandler
+menuItemHandler Inventory = Just ItemMenuHandler
   { triggerKeys = S.fromList "i"
   , offKeys = S.fromList "i"
-  , menuKeys = M.fromList [('d', ("Drop", \gs -> gs^.dropInventoryItem))]
-  , prerequisites = not . inActiveMenu
+  , menuKeys = M.fromList [('d', ("Drop", \gs -> gs^.to gmDropInventoryItem))]
+  , prerequisites = not . gsInActiveMenu
   , selectionLens = menuState.at Inventory
   , menuFilter = const True
   , itemLens = player.playerInventory }
-itemHandler Pickup = Just $ ItemMenuHandler
+menuItemHandler Pickup = Just ItemMenuHandler
   { triggerKeys = S.fromList ","
   , offKeys = S.empty
-  , menuKeys = M.fromList [(',', ("Pick up", \gs -> gs^.pickUpItem))]
+  , menuKeys = M.fromList [(',', ("Pick up", \gs -> gs^.to gmPickUpItem))]
 
-  , prerequisites = \gs -> not (inActiveMenu gs) && not (null $ gs^.itemsAtPlayer)
+  , prerequisites = \gs -> not (gsInActiveMenu gs) && not (null $ gs^.itemsAtPlayer)
   , selectionLens = menuState.at Pickup
   , menuFilter = not . isItemBulky
   , itemLens = itemsAtPlayer }
-itemHandler _ = Nothing
+menuItemHandler _ = Nothing
+
+gsIsVendoring :: GameState -> Bool
+gsIsVendoring gs = isJust $ gs^.menuState.at Vendor
 

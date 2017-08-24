@@ -25,7 +25,6 @@ import System.Timeout
 
 import Submarination.Creature
 import Submarination.GameState
-import Submarination.GameState.Types
 import Submarination.Item
 import Submarination.MonotonicClock
 import Submarination.Level
@@ -145,8 +144,8 @@ renderGameState game_state monotonic_time_ns = runReaderT (renderGameState' mono
 renderGameState' :: MonadTerminalState m => Integer -> GameMonadRo m ()
 renderGameState' monotonic_time_ns = do
   game_state <- gr identity
-  in_inventory <- gr (^.menuState.to (Inventory `M.member`))
-  in_pickup <- gr (^.menuState.to (Pickup `M.member`))
+  in_inventory <- gr $ gsIsMenuActive Inventory
+  in_pickup <- gr $ gsIsMenuActive Pickup
 
   lift $ mutateTerminalStateM $ do
     clear
@@ -187,8 +186,8 @@ reverseAppearance (Cell fintensity fcolor bintensity bcolor ch) =
 
 renderCreatures :: GameMonadRoTerminal s ()
 renderCreatures = do
-  level <- gr (^.currentLevel)
-  V2 px py <- view $ player.playerPosition
+  level <- gr gsCurrentLevel
+  V2 px py <- view $ glPlayer.playerPosition
 
   lift $ ifor_ (level^.creatures) $ \(V2 cx cy) creature -> do
     -- relative position
@@ -203,8 +202,8 @@ renderCreatures = do
 
 renderCurrentLevel :: Integer -> GameMonadRoTerminal s ()
 renderCurrentLevel monotonic_time_ns = do
-  lvl <- gr (^.currentLevel)
-  playerpos <- gr (^.player.playerPosition)
+  lvl <- gr gsCurrentLevel
+  playerpos <- gr (^.glPlayer.playerPosition)
   renderLevel monotonic_time_ns lvl playerpos
 
 levelFeatureToAppearance :: LevelCell -> Double -> Int -> Int -> Cell
@@ -242,11 +241,11 @@ mapMiddleOnTerminal = (40, 12)
 
 renderSub :: Integer -> GameMonadRoTerminal s ()
 renderSub monotonic_time_ns = do
-  V2 sx sy <- gr (^.sub.subPosition)
-  V2 sw sh <- gr (^.sub.topology.to subSize)
-  V2 px py <- view $ player.playerPosition
+  V2 sx sy <- gr (^.glSub.subPosition)
+  V2 sw sh <- gr (^.glSub.subTopology.to subSize)
+  V2 px py <- view $ glPlayer.playerPosition
 
-  topo <- gr (^.sub.topology)
+  topo <- gr (^.glSub.subTopology)
 
   lift $ for_ [V2 x y | x <- [px-losDistance..px+losDistance], y <- [py-losDistance..py+losDistance]] $ \(V2 lx ly) -> do
     let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) mapMiddleOnTerminal
@@ -351,9 +350,9 @@ renderHud :: Integer -> GameMonadRoTerminal s ()
 renderHud _monotonic_time_ns = do
 
   -- The name of the section of submarine you are in
-  player_pos <- gr (^.player.playerPosition)
-  sub_pos <- gr (^.sub.subPosition)
-  sub_topo <- gr (^.sub.topology)
+  player_pos <- gr (^.glPlayer.playerPosition)
+  sub_pos <- gr (^.glSub.subPosition)
+  sub_topo <- gr (^.glSub.subTopology)
 
   case getLocationNameInSub (player_pos - sub_pos) sub_topo of
     Just sub_section_name -> do
@@ -361,24 +360,24 @@ renderHud _monotonic_time_ns = do
       let sub_title_w = textWidth sub_title
       lift $ setText (40-(sub_title_w `div` 2)) 0 Vivid White Dull Black sub_title
     Nothing -> do
-      title <- gr currentAreaName
+      title <- gr gsCurrentAreaName
       let title_w = textWidth title
       lift $ setText (40-(title_w `div` 2)) 0 Vivid White Dull Black title
 
   -- Health/Oxygen
-  hp     <- gr (^.player.playerHealth)
-  max_hp <- gr (^.player.playerMaximumHealth)
+  hp     <- gr (^.glPlayer.playerHealth)
+  max_hp <- gr (^.glPlayer.playerMaximumHealth)
 
-  oxygen     <- gr (^.player.playerOxygen)
-  max_oxygen <- gr getMaximumOxygenLevel
+  oxygen     <- gr (^.glPlayer.playerOxygen)
+  max_oxygen <- gr gsMaximumOxygenLevel
 
   renderBar "HP: " hp max_hp 53 2 Vivid Red Dull Blue
   renderBar "O₂: " oxygen max_oxygen 53 4 Vivid Cyan Dull Blue
 
   renderTurn
 
-  on_surface <- gr isOnSurface
-  maybe_item_menu_handler <- gr getActiveMenuHandler
+  on_surface <- gr gsIsOnSurface
+  maybe_item_menu_handler <- gr gmActiveMenuHandler
 
   case maybe_item_menu_handler of
     Just item_menu_handler ->
@@ -416,7 +415,7 @@ renderItemMenu item_handler = do
   appendText 2 1 Dull Yellow Dull Black ""
 
 renderKeyInstructions :: [([Text], Text)] -> Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
-renderKeyInstructions lst x = go lst x
+renderKeyInstructions = go
  where
   go [] _ = return ()
   go ((key, action):rest) x = do
@@ -438,8 +437,8 @@ renderKeyInstructions lst x = go lst x
 
 renderItemPileHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderItemPileHud = do
-  player_pos <- gr (^.player.playerPosition)
-  items <- gr (^.levelItemsAt player_pos)
+  player_pos <- gr (^.glPlayer.playerPosition)
+  items <- gr (^.glItemsAt player_pos)
   case items of
     [] -> return ()
     [_single_item] ->
@@ -466,7 +465,7 @@ statusAppearance Slow = (Dull, Red, Dull, Black)
 
 renderStatuses :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderStatuses = do
-  statuses <- gr currentStatuses
+  statuses <- gr gsCurrentStatuses
   unless (null statuses) $ do
     flip evalStateT 53 $ for_ statuses $ \status -> do
       let status_name = statusName status
@@ -481,24 +480,24 @@ renderStatuses = do
     appendText 0 2 Vivid White Dull Black ""
 
 renderDragging :: VerticalBoxRender (GameMonadRoTerminal s) ()
-renderDragging = gr (^.player.playerDragging) >>= \case
+renderDragging = gr (^.glPlayer.playerDragging) >>= \case
   Nothing -> return ()
 
   Just bulky_item -> do
     appendText 53 2 Vivid White Dull Black $ "Dragging: " <> itemName bulky_item Singular
-    appendText 53 0 Dull White Dull Black $ "[ ] Stop"
-    appendText 54 2 Vivid Green Dull Black $ "G"
+    appendText 53 0 Dull White Dull Black "[ ] Stop"
+    appendText 54 2 Vivid Green Dull Black "G"
 
 renderTurn :: GameMonadRoTerminal s ()
 renderTurn = do
-  current_turn <- gr (^.turn)
+  current_turn <- gr gsTurn
 
   let turn_text = "T: " <> show current_turn
   lift $ setText (80-textWidth turn_text) 0 Vivid White Dull Black turn_text
 
 renderInventorySummary :: Int -> Bool -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderInventorySummary x show_keys = do
-  inventory <- gr (^.player.playerInventory)
+  inventory <- gr (^.glPlayer.playerInventory)
   let num_items = length inventory
       show_inventory_key_thing = when show_keys $ do
         appendText x 0 Dull White Dull Black "[ ] Inventory"
@@ -515,7 +514,7 @@ renderInventorySummary x show_keys = do
 
 renderSurfaceHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderSurfaceHud = do
-  shells <- gr (^.player.playerShells)
+  shells <- gr (^.glPlayer.playerShells)
 
   appendText 53 0 Vivid Yellow Dull Black "$"
   appendText 54 2 Vivid White Dull Black $ ": " <> show shells
@@ -524,7 +523,7 @@ renderSurfaceHud = do
   renderDragging
   renderItemPileHud
 
-  ((,) <$> gr getCurrentVendor <*> gr (^.currentVendorMenuSelection)) >>= \case
+  ((,) <$> gr gmCurrentVendorCreature <*> gr (^.glCurrentVendorMenuSelection)) >>= \case
     (Just vendor, Just menu_selection) -> do
       let desc = vendorDescription vendor
       _ <- lift2 $ setWrappedText 3 1 25 Dull White Dull Black desc
