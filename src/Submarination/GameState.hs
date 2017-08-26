@@ -18,6 +18,7 @@ module Submarination.GameState
   , gsCycleGame
   , gsTurn
   , gmMoveToDirection
+  , gsIsDead
   -- * Messages
   , gsAddMessage
   , gsCurrentMessage
@@ -58,6 +59,8 @@ module Submarination.GameState
   , glSub
   , subPosition
   , subTopology
+  , gsPlayerIsInsideSub
+  , geStartDiving
   , Sub()
   -- * Menus
   , gsInActiveMenu
@@ -161,13 +164,15 @@ initialGameState = GameState
   , _activeMenuState = M.empty
   , _activeMenuInventory = []
   , _activeMenuCounter = Nothing
+  , _dead            = False
   , _vendorMenu      = Nothing
   , _turn = 1
   , _inputTurn = 1
   , _levels = M.singleton 0 surfaceLevel
   , _messages = M.empty
   , _sub = Sub { _subPosition = V2 23 (-2)
-               , _subTopology = initial_sub_topo }
+               , _subTopology = initial_sub_topo
+               , _subDiving   = False }
   , _depth  = 0 }
  where
   initial_sub_topo =
@@ -241,9 +246,28 @@ gsAdvanceInputTurn = inputTurn +~ 1
 gsRetractInputTurn :: GameState -> GameState
 gsRetractInputTurn = inputTurn -~ 1
 
+gsPlayerIsInsideSub :: GameState -> Bool
+gsPlayerIsInsideSub gs =
+  isJust $ firstOf (subCellP $ gs^.player.playerPosition - gs^.sub.subPosition) (gs^.sub.subTopology)
+
+geStartDiving :: GameState -> Failing GameState
+geStartDiving gs = do
+  guardE (gsPlayerIsInsideSub gs) "You are not inside submarine."
+  return $ gs & sub.subDiving .~ True
+
 gsAdvanceTurn :: GameState -> GameState
-gsAdvanceTurn = execState $ do
+gsAdvanceTurn gs | gs^.dead = gs
+gsAdvanceTurn gs = flip execState gs $ do
   turn += 1
+
+  -- Make submarine go deeper if it's diving
+  is_diving <- use $ sub.subDiving
+  when is_diving $ depth += 1
+
+  curdepth <- use depth
+  when (curdepth >= 50) $
+    dead .= True
+
   walkActiveMetadata
  where
   walkActiveMetadata = do
@@ -283,6 +307,11 @@ gmMoveToDirection direction gs = flip evalState gs $ runMaybeT $ do
   openHatch new_playerpos = do
     lcell <- use (glCellAt new_playerpos)
     guard (lcell == Hatch)
+
+    -- Do not open hatch if it's in airlock and sub is moving
+    case isAirLock <$> getAtomTopologyAt (new_playerpos - gs^.sub.subPosition) (gs^.sub.subTopology) of
+      Just True -> guard (gs^.sub.subDiving == False)
+      _ -> return ()
 
     current_turn <- use turn
 
@@ -382,7 +411,10 @@ gsCurrentLevel :: GameState -> Level
 gsCurrentLevel gs = gs^.glCurrentLevel
 
 gsCurrentAreaName :: GameState -> Text
-gsCurrentAreaName _ = "--- SURFACE ---"
+gsCurrentAreaName gs =
+  if gs^.depth == 0
+    then "Surface"
+    else "Depth " <> show (gs^.depth) <> "m"
 
 gsIsOccupied :: V2 Int -> GameState -> Bool
 gsIsOccupied coords gamestate =
@@ -453,7 +485,12 @@ gmCurrentVendorCreature gs = runMaybeExcept $ do
 
 gmActiveMenuHandler :: GameState -> Maybe ItemMenuHandler
 gmActiveMenuHandler gs =
-  ch Drop <|> ch Inventory <|> ch Pickup <|> ch ContainerPutIn <|> ch ContainerTakeOut
+  ch Drop <|>
+  ch Inventory <|>
+  ch Pickup <|>
+  ch ContainerPutIn <|>
+  ch ContainerTakeOut <|>
+  ch StartDive
  where
   ch ms = case gs^.activeMenuState.at ms of
     Nothing -> Nothing
@@ -466,6 +503,7 @@ gmActiveMenu gs =
      | Pickup              `M.member` menus -> Just Pickup
      | ContainerPutIn      `M.member` menus -> Just ContainerPutIn
      | ContainerTakeOut    `M.member` menus -> Just ContainerTakeOut
+     | StartDive           `M.member` menus -> Just StartDive
 
      | otherwise -> Nothing
  where
@@ -486,7 +524,7 @@ gmInsertMenuDigit digit gs = do
     Nothing -> digit
     Just old_digit ->
       let new_value = old_digit*10 + digit
-       
+
        in if new_value < old_digit
             then maxBound
             else new_value
@@ -524,14 +562,15 @@ gsInActiveMenu = isJust . gmActiveMenu
 gsIsMenuActive :: ActiveMenuState -> GameState -> Bool
 gsIsMenuActive ms gs = gs^.activeMenuState.to (ms `M.member`)
 
-menuKeyToMenuStateTrigger :: Char -> Maybe ActiveMenuState
-menuKeyToMenuStateTrigger ch = go menu_states
+menuKeyToMenuStateTrigger :: GameState -> Char -> Maybe ActiveMenuState
+menuKeyToMenuStateTrigger gs ch = go menu_states
  where
   menu_states = enumFrom (toEnum 0)
 
   go [] = Nothing
   go (candidate:rest) =
-    if ch `S.member` triggerKeys (menuItemHandler candidate)
+    if ch `S.member` triggerKeys (menuItemHandler candidate) &&
+       prerequisites (menuItemHandler candidate) gs
       then Just candidate
       else go rest
 
@@ -690,6 +729,7 @@ defaultItemHandler key item_lens = ItemMenuHandler
   { triggerKeys           = S.empty
   , offKeys               = S.empty
   , menuName              = "<UNKNOWN>"
+  , menuText              = ""
   , menuStateKey          = key
   , selectMode            = NotSelectable
   , menuKeys              = M.empty
@@ -763,6 +803,19 @@ menuItemHandler ContainerPutIn = (defaultItemHandler ContainerPutIn (player.play
   , prerequisites = \gs -> view (player.playerInventory.to (not . null)) gs &&
                            isJust (gs^?gllAtPlayer glBulkyItemAt._Just.itemContents)
   , menuFilter = not . isItemBulky }
+
+menuItemHandler StartDive = (defaultItemHandler StartDive activeMenuInventory)
+  { triggerKeys   = S.fromList "d"
+  , menuName      = "Dive"
+  , offKeys       = S.fromList "q "
+  , selectMode    = NotSelectable
+  , menuKeys      = M.fromList [('d', ("Dive", \gs -> fmap gsAdvanceTurn $ gs^.to geStartDiving))]
+  , prerequisites = \gs -> isNothing (gmActiveMenu gs) &&
+                           gs^.sub.subDiving == False &&
+                           (isBridge <$> getAtomTopologyAt (gs^.player.playerPosition - gs^.sub.subPosition) (gs^.sub.subTopology)) == Just True
+  , menuFilter    = const False
+  , menuText      = "There is no turning back after you dive. Make sure you've spent your money and stocked up properly."
+  }
 
 gsIsVendoring :: GameState -> Bool
 gsIsVendoring gs = isJust $ gs^.vendorMenu
@@ -843,4 +896,7 @@ gsCurrentMessage gs = fromMaybe "" $ gs^.messages.at (gs^.inputTurn)
 
 gmCurrentlySelectedCount :: GameState -> Maybe Int
 gmCurrentlySelectedCount = (^.activeMenuCounter)
+
+gsIsDead :: GameState -> Bool
+gsIsDead = _dead
 

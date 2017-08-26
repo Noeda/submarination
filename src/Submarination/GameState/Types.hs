@@ -7,12 +7,14 @@ module Submarination.GameState.Types
   , activeMenuCounter
   , vendorMenu
   , depth
+  , dead
   , turn
   , inputTurn
   , levels
   , Sub(..)
   , subTopology
   , subPosition
+  , subDiving
   , Player(..)
   , playerPosition
   , playerMaximumHealth
@@ -58,11 +60,13 @@ data ActiveMenuState
   | Drop
   | ContainerTakeOut
   | ContainerPutIn
+  | StartDive
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
 
 data Sub = Sub
   { _subTopology :: !SubTopology
-  , _subPosition :: !(V2 Int) }
+  , _subPosition :: !(V2 Int)
+  , _subDiving   :: !Bool }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data GameState = GameState
@@ -72,6 +76,7 @@ data GameState = GameState
   , _activeMenuInventory :: [Item]
   , _activeMenuCounter   :: Maybe Int
   , _vendorMenu          :: Maybe Int
+  , _dead                :: Bool
   , _depth               :: Int
   , _turn                :: Int
   , _inputTurn           :: Int
@@ -139,11 +144,18 @@ subOrLevelLens level_lens sub_lens coords@(V2 x y) = lens get_it set_it
     V2 sx sy = gamestate^.sub.subPosition
 {-# INLINE subOrLevelLens #-}
 
+fullWaterLevel :: Level
+fullWaterLevel = levelFromStrings Water []
+{-# NOINLINE fullWaterLevel #-}
+
 glCurrentLevel :: Lens' GameState Level
 glCurrentLevel = lens get_it set_it
  where
-  get_it gs = fromJust $ M.lookup (gs^.depth) (gs^.levels)
-  set_it gs new_level = gs & levels.at (gs^.depth) .~ Just new_level
+  get_it gs = fromMaybe fullWaterLevel $ M.lookup (gs^.depth) (gs^.levels)
+  set_it gs new_level =
+    if new_level == fullWaterLevel
+      then gs & levels.at (gs^.depth) .~ Nothing
+      else gs & levels.at (gs^.depth) .~ Just new_level
 {-# INLINE glCurrentLevel #-}
 
 data ItemMenuHandler = ItemMenuHandler
@@ -156,6 +168,7 @@ data ItemMenuHandler = ItemMenuHandler
   , prerequisites         :: GameState -> Bool
   , selectMode            :: SelectMode
   , menuFilter            :: Item -> Bool
+  , menuText              :: !Text
   , toActiveMenuInventory :: GameState -> [Item]
   , otherKeys             :: M.Map Char Text
   , itemLens              :: Lens' GameState [Item] }

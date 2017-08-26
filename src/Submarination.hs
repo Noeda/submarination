@@ -55,7 +55,7 @@ startGame knob = do
 #ifndef GHCJS_BROWSER
     'm' -> return ()
 #endif
-    ch -> do
+    ch | not (gsIsDead gs) -> do
       case ch of
         dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) && not in_active_menu ->
           modifyConditional $ move dir_ch
@@ -65,7 +65,7 @@ startGame knob = do
           itemDigitSelect (ord digit - ord '0')
         ch | gs^?to gmActiveMenuHandler._Just.to offKeys.to (ch `S.member`) == Just True ->
           itemMenuOff
-        ch | Just ms <- menuKeyToMenuStateTrigger ch,
+        ch | Just ms <- menuKeyToMenuStateTrigger gs ch,
              Just ms /= gmActiveMenu gs ->
           itemTrigger ms
         ch | Just MultiSelect <- gmCurrentSelectMode gs,
@@ -87,6 +87,7 @@ startGame knob = do
         _ -> modify gsRetractInputTurn
 
       startGame knob
+    _ -> startGame knob
 
 itemDigitSelect :: Monad m => Int -> GameMonad m ()
 itemDigitSelect = modifyConditional . gmInsertMenuDigit

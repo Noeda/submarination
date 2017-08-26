@@ -145,6 +145,7 @@ renderGameState' :: MonadTerminalState m => Integer -> GameMonadRo m ()
 renderGameState' monotonic_time_ns = do
   game_state <- gr identity
   in_active_menu <- gr $ isJust . gmActiveMenu
+  is_dead <- gr gsIsDead
 
   lift $ mutateTerminalStateM $ do
     clear
@@ -156,7 +157,9 @@ renderGameState' monotonic_time_ns = do
                          renderPlayer
                        renderHud monotonic_time_ns
 
-    runReaderT rendering game_state
+    if is_dead
+      then runReaderT renderDeadScreen game_state
+      else runReaderT rendering game_state
 
 type GameMonadRoTerminal s = GameMonadRo (MutateTerminal s)
 
@@ -207,7 +210,7 @@ renderCurrentLevel monotonic_time_ns = do
 
 levelFeatureToAppearance :: LevelCell -> Double -> Int -> Int -> Cell
 levelFeatureToAppearance lcell monotonic_time x y = case lcell of
-  Water         -> Cell Vivid Blue Dull Black '~'
+  Water         -> Cell Vivid Blue Dull Black '≈'
   WoodenBoards  -> Cell Vivid Yellow Dull Black '.'
   Rock          -> Cell Vivid Black Vivid Black ' '
   MountainRock  -> Cell Vivid White Vivid Black '^'
@@ -376,12 +379,14 @@ renderHud _monotonic_time_ns = do
 
   case getLocationNameInSub (player_pos - sub_pos) sub_topo of
     Just sub_section_name -> do
-      let sub_title = "+++ " <> sub_section_name <> " +++"
+      current_area_name <- gr gsCurrentAreaName
+      let sub_title = "+++ " <> sub_section_name <> ", " <> current_area_name <> " +++"
       let sub_title_w = textWidth sub_title
       lift $ setText (40-(sub_title_w `div` 2)) 0 Vivid White Dull Black sub_title
     Nothing -> do
-      title <- gr gsCurrentAreaName
-      let title_w = textWidth title
+      title' <- gr gsCurrentAreaName
+      let title = "--- " <> title' <> " ---"
+          title_w = textWidth title
       lift $ setText (40-(title_w `div` 2)) 0 Vivid White Dull Black title
 
   -- Health/Oxygen
@@ -396,20 +401,17 @@ renderHud _monotonic_time_ns = do
 
   renderTurn
 
-  on_surface <- gr gsIsOnSurface
   maybe_item_menu_handler <- gr gmActiveMenuHandler
 
   case maybe_item_menu_handler of
     Just item_menu_handler ->
       runVerticalBoxRender 1 2 (renderItemMenu item_menu_handler)
-    _ -> if | on_surface
-               -> runVerticalBoxRender 1 6 renderSurfaceHud
-            | otherwise
-               -> return ()
+    _ -> runVerticalBoxRender 1 6 renderAdditionalHud
 
 renderItemMenu :: ItemMenuHandler -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderItemMenu item_handler = do
-  renderInventorySummary 2
+  unless (T.null $ menuText item_handler) $
+    appendWrappedText 1 2 40 Dull White Dull Black (menuText item_handler)
 
   items <- filter (menuFilter item_handler) <$> gr (^.itemLens item_handler)
   let gitems = groupItems items
@@ -605,18 +607,30 @@ renderInventorySummary x = do
      | otherwise
        -> appendText x 2 Vivid White Dull Black $ "Carrying " <> show num_items <> " items."
 
-renderSurfaceHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
-renderSurfaceHud = do
-  shells <- gr (^.glPlayer.playerShells)
+renderDeadScreen :: GameMonadRoTerminal s ()
+renderDeadScreen = do
+  turn <- gr gsTurn
+  lift $ do
+    void $ setWrappedText 2 2 60 Dull White Dull Black "Suddenly, the submarine explodes."
+    void $ setWrappedText 2 4 60 Dull White Dull Black "You are DEAD, R.I.P."
+    void $ setWrappedText 2 6 60 Dull White Dull Black $ "You survived for " <> show turn <> " turns."
 
-  appendText 53 0 Vivid Yellow Dull Black "$"
-  appendText 54 2 Vivid White Dull Black $ ": " <> show shells
+renderAdditionalHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
+renderAdditionalHud = do
+  -- Money only has purpose on surface at the moment
+  on_surface <- gr gsIsOnSurface
+
+  when on_surface $ do
+    shells <- gr (^.glPlayer.playerShells)
+
+    appendText 53 0 Vivid Yellow Dull Black "$"
+    appendText 54 2 Vivid White Dull Black $ ": " <> show shells
 
   renderStatuses
   renderDragging
   renderItemPileHud
 
-  withSide LeftSide $ ((,) <$> gr gmCurrentVendorCreature <*> gr (^.glCurrentVendorMenuSelection)) >>= \case
+  when on_surface $ withSide LeftSide $ ((,) <$> gr gmCurrentVendorCreature <*> gr (^.glCurrentVendorMenuSelection)) >>= \case
     (Just vendor, Just menu_selection) -> do
       let desc = vendorDescription vendor
       _ <- appendWrappedText 3 2 25 Dull White Dull Black desc

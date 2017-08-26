@@ -9,6 +9,9 @@ module Submarination.Sub
   , composeHorizontally'
   , composeVertically'
   , getLocationNameInSub
+  , getAtomTopologyAt
+  , isAirLock
+  , isBridge
   , subCell
   , subCellP
   , subItems
@@ -35,6 +38,14 @@ data SubTopology
   | Composition !SubTopology !SubTopology !(V2 Int) (V2 Int)
   | Rotate90 !SubTopology
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+
+isAirLock :: SubTopology -> Bool
+isAirLock AirLock{} = True
+isAirLock _ = False
+
+isBridge :: SubTopology -> Bool
+isBridge Bridge{} = True
+isBridge _ = False
 
 cardinalNeighboursOf :: V2 Int -> [V2 Int]
 cardinalNeighboursOf (V2 x y) =
