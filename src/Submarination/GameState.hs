@@ -68,8 +68,10 @@ module Submarination.GameState
   , gmCurrentlySelectedItems
   , gmCurrentlySelectedSingleItem
   , gmCurrentlySelectedSingleInventoryItem
+  , gmCurrentlySelectedCount
   , gmCloseMenu
   , gmEnterMenu
+  , gmInsertMenuDigit
   , gmSelectToggleCursorItem
   , ActiveMenuState(..)
   , SelectMode(..)
@@ -158,6 +160,7 @@ initialGameState = GameState
                      , _playerDragging = Nothing }
   , _activeMenuState = M.empty
   , _activeMenuInventory = []
+  , _activeMenuCounter = Nothing
   , _vendorMenu      = Nothing
   , _turn = 1
   , _inputTurn = 1
@@ -473,19 +476,35 @@ gmCloseMenu gs = do
   active_menu <- gmActiveMenu gs
   return $ gs & activeMenuState.at active_menu .~ Nothing
 
+gmInsertMenuDigit :: Int -> GameState -> Maybe GameState
+gmInsertMenuDigit digit gs = do
+  ms <- gmActiveMenu gs
+  let handler = menuItemHandler ms
+  guard (selectMode handler == MultiSelect)
+
+  return $ gs & activeMenuCounter %~ Just . \case
+    Nothing -> digit
+    Just old_digit ->
+      let new_value = old_digit*10 + digit
+       
+       in if new_value < old_digit
+            then maxBound
+            else new_value
+
 gmEnterMenu :: ActiveMenuState -> GameState -> Maybe GameState
 gmEnterMenu ms gs = do
   let handler = menuItemHandler ms
   guard (prerequisites handler gs)
 
   let initial_selection = case selectMode handler of
-                            NotSelectable -> S.empty
-                            SingleSelect -> S.singleton 0
-                            MultiSelect -> S.empty
+                            NotSelectable -> M.empty
+                            SingleSelect -> M.singleton 0 1
+                            MultiSelect -> M.empty
 
   return $ fromMaybe (gs & (activeMenuState.at ms .~ Just (initial_selection, 0)) .
                            (activeMenuState .~ M.empty) .
-                           (activeMenuInventory .~ toActiveMenuInventory handler gs)) $
+                           (activeMenuInventory .~ toActiveMenuInventory handler gs) .
+                           (activeMenuCounter .~ Nothing)) $
     quickEnterAction handler gs
 
 gsCycleGame :: GameState -> GameState
@@ -516,6 +535,12 @@ menuKeyToMenuStateTrigger ch = go menu_states
       then Just candidate
       else go rest
 
+gmCurrentlyAvailableItems :: GameState -> Maybe [Item]
+gmCurrentlyAvailableItems gs = do
+  handler <- gmActiveMenuHandler gs
+  let items = filter (menuFilter handler) (gs^.itemLens handler)
+  return items
+
 gmCurrentlySelectedItems :: GameState -> Maybe [Item]
 gmCurrentlySelectedItems gs = do
   handler <- gmActiveMenuHandler gs
@@ -525,11 +550,11 @@ gmCurrentlySelectedItems gs = do
       selected_set' <- gs^?activeMenuState.at (menuStateKey handler)._Just._1
       let items = filter (menuFilter handler) (gs^.itemLens handler)
           gitems = M.assocs $ groupItems items
-          selected_set = S.filter (\idx -> idx < length gitems) selected_set'
+          selected_set = M.filterWithKey (\idx _ -> idx < length gitems) selected_set'
 
-      return $ concatMap (\index ->
-        let (item, count) = gitems !! index
-         in replicate count item) (S.toList selected_set)
+      return $ concatMap (\(index, num_selected) ->
+        let (item, _) = gitems !! index
+         in replicate num_selected item) (M.assocs selected_set)
 
     NotSelectable -> Nothing
 
@@ -549,10 +574,12 @@ gmCurrentlySelectedSingleItem gs = do
 
   return $ fst $ M.assocs gitems !! current_selection
 
-singleSelection :: Prism' (S.Set Int) Int
-singleSelection = prism' S.singleton $ \sset ->
-  if S.size sset == 1
-    then Just $ S.findMin sset
+singleSelection :: Prism' (M.Map Int Int) Int
+singleSelection = prism' (flip M.singleton 1) $ \sset ->
+  if M.size sset == 1
+    then case M.findMin sset of
+           (key, 1) -> Just key
+           _ -> Nothing
     else Nothing
 
 currentlySelectedSingleMenuItemLens :: ActiveMenuState -> Lens' GameState [Item] -> Getter GameState (Maybe Item)
@@ -643,7 +670,7 @@ gePickUpItemByMenu gs = do
 geDropInventoryItemByMenu :: GameState -> Failing GameState
 geDropInventoryItemByMenu gs = do
   guardE (gmActiveMenu gs == Just Drop) ""
-  items <- toFailing $ gmCurrentlySelectedItems gs
+  items <- addFail (gmCurrentlySelectedItems gs) "No currently selected items."
 
   go items gs <&> gsAddMessage (case items of
     [single_item] -> "Dropped " <> itemName single_item Singular <> "."
@@ -774,7 +801,7 @@ gmCursorModification action gs =
 
     return $ gs & vendorMenu .~ Just new_selection
 
-gmMenuSelections :: GameState -> Maybe (S.Set Int)
+gmMenuSelections :: GameState -> Maybe (M.Map Int Int)
 gmMenuSelections gs = do
   handler <- gmActiveMenuHandler gs
   guard (selectMode handler == MultiSelect)
@@ -787,16 +814,25 @@ gmSelectToggleCursorItem :: GameState -> Maybe GameState
 gmSelectToggleCursorItem gs = do
   handler <- gmActiveMenuHandler gs
   cursor <- gmMenuCursor gs
-  return $ gs & activeMenuState.at (menuStateKey handler)._Just._1 %~ \set ->
-    if S.member cursor set
-      then S.delete cursor set
-      else S.insert cursor set
+  gitems <- groupItems <$> gmCurrentlyAvailableItems gs
+
+  guard (cursor < M.size gitems)
+  let max_selection_number = snd $ M.assocs gitems !! cursor
+      num_selections = fromMaybe max_selection_number $ min max_selection_number <$> gs^.activeMenuCounter
+
+  return $ gs & (activeMenuCounter .~ Nothing) .
+                (activeMenuState.at (menuStateKey handler)._Just._1 %~ \set ->
+    if M.member cursor set
+      then M.delete cursor set
+      else M.insert cursor num_selections set)
 
 gmIncreaseMenuCursor :: GameState -> Maybe GameState
-gmIncreaseMenuCursor = gmCursorModification (+1)
+gmIncreaseMenuCursor gs =
+  gmCursorModification (+1) gs <&> activeMenuCounter .~ Nothing
 
 gmDecreaseMenuCursor :: GameState -> Maybe GameState
-gmDecreaseMenuCursor = gmCursorModification (\x -> x - 1)
+gmDecreaseMenuCursor gs =
+  gmCursorModification (\x -> x - 1) gs <&> activeMenuCounter .~ Nothing
 
 gsAddMessage :: Text -> GameState -> GameState
 gsAddMessage message gs =
@@ -804,4 +840,7 @@ gsAddMessage message gs =
 
 gsCurrentMessage :: GameState -> Text
 gsCurrentMessage gs = fromMaybe "" $ gs^.messages.at (gs^.inputTurn)
+
+gmCurrentlySelectedCount :: GameState -> Maybe Int
+gmCurrentlySelectedCount = (^.activeMenuCounter)
 

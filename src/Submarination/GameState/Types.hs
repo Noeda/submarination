@@ -4,6 +4,7 @@ module Submarination.GameState.Types
   , sub
   , activeMenuState
   , activeMenuInventory
+  , activeMenuCounter
   , vendorMenu
   , depth
   , turn
@@ -34,7 +35,8 @@ module Submarination.GameState.Types
   , Failing
   , guardE
   , toMaybe
-  , toFailing )
+  , toFailing
+  , addFail )
   where
 
 import Control.Lens hiding ( Level, levels )
@@ -66,8 +68,9 @@ data Sub = Sub
 data GameState = GameState
   { _player              :: Player
   , _sub                 :: Sub
-  , _activeMenuState     :: M.Map ActiveMenuState (S.Set Int, Int)
+  , _activeMenuState     :: M.Map ActiveMenuState (M.Map Int Int, Int)
   , _activeMenuInventory :: [Item]
+  , _activeMenuCounter   :: Maybe Int
   , _vendorMenu          :: Maybe Int
   , _depth               :: Int
   , _turn                :: Int
@@ -188,6 +191,10 @@ guardE True _ = Right ()
 toMaybe :: Failing a -> Maybe a
 toMaybe Left{} = Nothing
 toMaybe (Right v) = Just v
+
+addFail :: Maybe a -> Text -> Failing a
+addFail Nothing txt = Left txt
+addFail (Just v) _ = Right v
 
 toFailing :: Maybe a -> Failing a
 toFailing Nothing = Left ""

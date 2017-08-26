@@ -421,6 +421,10 @@ renderItemMenu item_handler = do
 
 
   appendText 2 1 Dull Yellow Dull Black ""
+
+  gr gmCurrentlySelectedCount >>= \case
+    Nothing -> return ()
+    Just counter -> appendText 2 2 Dull White Dull Black $ "Select #: " <> show counter <> "_"
  where
   actionInstructions gs = M.assocs (menuKeys item_handler) <&> \(ch, (text, action)) ->
     case action gs of
@@ -437,14 +441,17 @@ renderItemMenu item_handler = do
 
   multiSelectRender gitems = do
     cursor <- gr gmMenuCursor
-    selections <- fromMaybe S.empty <$> gr gmMenuSelections
+    selections <- fromMaybe M.empty <$> gr gmMenuSelections
 
     for_ (zip [0..] (M.assocs gitems)) $ \(index, (item, count)) -> do
       let fintensity = if Just index == cursor then Vivid else Dull
 
-      if index `S.member` selections
-        then appendText 4 0 fintensity Yellow Dull Black "[✓]"
-        else appendText 4 0 fintensity Yellow Dull Black "[ ]"
+      if | Just num_selected <- M.lookup index selections,
+           num_selected >= count
+           -> appendText 4 0 fintensity Yellow Dull Black "[✓]"
+         | Just num_selected <- M.lookup index selections
+           -> appendText 4 0 fintensity Yellow Dull Black $ "[" <> show num_selected <> "]"
+         | otherwise -> appendText 4 0 fintensity Yellow Dull Black "[ ]"
 
       when (Just index == cursor) $
         renderArrowedItem item

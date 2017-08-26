@@ -5,6 +5,7 @@ module Submarination
   where
 
 import Control.Lens
+import Data.Char
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Prelude ( String )
@@ -60,12 +61,15 @@ startGame knob = do
           modifyConditional $ move dir_ch
 
         -- Item menus
+        digit | isDigit digit && in_active_menu ->
+          itemDigitSelect (ord digit - ord '0')
         ch | gs^?to gmActiveMenuHandler._Just.to offKeys.to (ch `S.member`) == Just True ->
           itemMenuOff
         ch | Just ms <- menuKeyToMenuStateTrigger ch,
              Just ms /= gmActiveMenu gs ->
           itemTrigger ms
-        ' ' | Just MultiSelect <- gmCurrentSelectMode gs ->
+        ch | Just MultiSelect <- gmCurrentSelectMode gs,
+             ch == ' ' || ch == '\n' || ch == '\r' ->
           itemSelectAction
         ch | gs^?to gmActiveMenuHandler._Just.to menuKeys.to (ch `M.member`) == Just True ->
           itemMenuAction ch
@@ -83,6 +87,9 @@ startGame knob = do
         _ -> modify gsRetractInputTurn
 
       startGame knob
+
+itemDigitSelect :: Monad m => Int -> GameMonad m ()
+itemDigitSelect = modifyConditional . gmInsertMenuDigit
 
 itemSelectAction :: Monad m => GameMonad m ()
 itemSelectAction = modifyConditional gmSelectToggleCursorItem
