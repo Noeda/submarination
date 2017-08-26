@@ -310,7 +310,7 @@ gmMoveToDirection direction gs = flip evalState gs $ runMaybeT $ do
 
     -- Do not open hatch if it's in airlock and sub is moving
     case isAirLock <$> getAtomTopologyAt (new_playerpos - gs^.sub.subPosition) (gs^.sub.subTopology) of
-      Just True -> guard (gs^.sub.subDiving == False)
+      Just True -> guard (not $ gs^.sub.subDiving)
       _ -> return ()
 
     current_turn <- use turn
@@ -811,7 +811,7 @@ menuItemHandler StartDive = (defaultItemHandler StartDive activeMenuInventory)
   , selectMode    = NotSelectable
   , menuKeys      = M.fromList [('d', ("Dive", \gs -> fmap gsAdvanceTurn $ gs^.to geStartDiving))]
   , prerequisites = \gs -> isNothing (gmActiveMenu gs) &&
-                           gs^.sub.subDiving == False &&
+                           not (gs^.sub.subDiving) &&
                            (isBridge <$> getAtomTopologyAt (gs^.player.playerPosition - gs^.sub.subPosition) (gs^.sub.subTopology)) == Just True
   , menuFilter    = const False
   , menuText      = "There is no turning back after you dive. Make sure you've spent your money and stocked up properly."
