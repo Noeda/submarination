@@ -30,7 +30,11 @@ module Submarination.GameState.Types
   , glCurrentLevel
   , messages
   , HasGameState(..)
-  , SelectMode(..) )
+  , SelectMode(..)
+  , Failing
+  , guardE
+  , toMaybe
+  , toFailing )
   where
 
 import Control.Lens hiding ( Level, levels )
@@ -145,7 +149,7 @@ data ItemMenuHandler = ItemMenuHandler
   , offKeys               :: S.Set Char
   , quickEnterAction      :: GameState -> Maybe GameState
   , menuStateKey          :: !ActiveMenuState
-  , menuKeys              :: M.Map Char (Text, GameState -> Maybe GameState)
+  , menuKeys              :: M.Map Char (Text, GameState -> Failing GameState)
   , prerequisites         :: GameState -> Bool
   , selectMode            :: SelectMode
   , menuFilter            :: Item -> Bool
@@ -174,4 +178,18 @@ instance MonadTerminalState m => MonadTerminalState (StateT GameState m) where
 instance MonadTerminalState m => MonadTerminalState (ReaderT GameState m) where
   getTerminal = lift getTerminal
   putTerminal = lift . putTerminal
+
+type Failing a = Either Text a
+
+guardE :: Bool -> Text -> Failing ()
+guardE False txt = Left txt
+guardE True _ = Right ()
+
+toMaybe :: Failing a -> Maybe a
+toMaybe Left{} = Nothing
+toMaybe (Right v) = Just v
+
+toFailing :: Maybe a -> Failing a
+toFailing Nothing = Left ""
+toFailing (Just v) = Right v
 

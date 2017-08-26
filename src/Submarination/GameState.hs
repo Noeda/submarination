@@ -31,6 +31,7 @@ module Submarination.GameState
   , glItemsAt
   -- ** Level items
   , gmAddItemInventory
+  , geAddItemInventory
   , glBulkyItemAt
   , inventoryLimit
   -- * Predefined levels
@@ -397,11 +398,14 @@ runMaybeExcept action =
     Left value -> Just value
     _ -> Nothing
 
-gmAddItemInventory :: Item -> GameState -> Maybe GameState
-gmAddItemInventory item gs =
+geAddItemInventory :: Item -> GameState -> Failing GameState
+geAddItemInventory item gs =
   if length (gs^.player.playerInventory) >= inventoryLimit
-    then Nothing
-    else Just $ gs & player.playerInventory %~ (item:)
+    then Left "Inventory full"
+    else Right $ gs & player.playerInventory %~ (item:)
+
+gmAddItemInventory :: Item -> GameState -> Maybe GameState
+gmAddItemInventory item gs = toMaybe $ geAddItemInventory item gs
 
 gmAttemptPurchase :: GameState -> Maybe GameState
 gmAttemptPurchase gs = do
@@ -518,9 +522,10 @@ gmCurrentlySelectedItems gs = do
   case selectMode handler of
     SingleSelect  -> (:[]) <$> gmCurrentlySelectedSingleItem gs
     MultiSelect   -> do
-      selected_set <- gs^?activeMenuState.at (menuStateKey handler)._Just._1
+      selected_set' <- gs^?activeMenuState.at (menuStateKey handler)._Just._1
       let items = filter (menuFilter handler) (gs^.itemLens handler)
           gitems = M.assocs $ groupItems items
+          selected_set = S.filter (\idx -> idx < length gitems) selected_set'
 
       return $ concatMap (\index ->
         let (item, count) = gitems !! index
@@ -539,6 +544,8 @@ gmCurrentlySelectedSingleItem gs = do
   let menu_selection = fromMaybe 0 (gs^?activeMenuState.at (menuStateKey handler)._Just._1.singleSelection)
       max_selection = M.size gitems-1
       current_selection = max 0 $ min max_selection menu_selection
+
+  guard (current_selection <= max_selection)
 
   return $ fst $ M.assocs gitems !! current_selection
 
@@ -559,92 +566,93 @@ gmCurrentlySelectedSingleInventoryItem :: GameState -> Maybe Item
 gmCurrentlySelectedSingleInventoryItem gs =
   gs^.currentlySelectedSingleMenuItemLens Inventory (player.playerInventory)
 
-gmDropItem :: Item -> GameState -> Maybe GameState
-gmDropItem item gs = do
-  guard (item `elem` (gs^.player.playerInventory))
+geDropItem :: Item -> GameState -> Failing GameState
+geDropItem item gs = do
+  guardE (item `elem` (gs^.player.playerInventory)) "No item in inventory"
   return $ gs & (player.playerInventory %~ delete item) .
                 (glItemsAt (gs^.player.playerPosition) %~ (:) item)
 
-gmPutInItemsByMenu :: GameState -> Maybe GameState
-gmPutInItemsByMenu gs = do
-  guard (gmActiveMenu gs == Just ContainerPutIn)
-  guard (isJust $ firstOf (gllAtPlayer glBulkyItemAt._Just.itemContents) gs)
-
-  items <- gmCurrentlySelectedItems gs
+gePutInItemsByMenu :: GameState -> Failing GameState
+gePutInItemsByMenu gs = do
+  guardE (gmActiveMenu gs == Just ContainerPutIn) ""
+  guardE (isJust $ firstOf (gllAtPlayer glBulkyItemAt._Just.itemContents) gs) "There is no container here"
+  items <- toFailing $ gmCurrentlySelectedItems gs
 
   go items gs <&> gsAddMessage (case items of
     [single_item] -> "Put in " <> itemName single_item Singular <> "."
     [] -> ""
     many_items -> "Put in " <> show (length many_items) <> " items.")
  where
-  go [] gs = Just gs
+  go [] gs = pure gs
   go (item:rest) gs = do
-    old_contents <- firstOf (gllAtPlayer glBulkyItemAt._Just.itemContents) gs
-    item_limit <- gs^?gllAtPlayer glBulkyItemAt._Just.to itemStorageLimit
-    guard (length old_contents < item_limit)
+    old_contents <- toFailing $ firstOf (gllAtPlayer glBulkyItemAt._Just.itemContents) gs
+    item_limit <- toFailing $ gs^?gllAtPlayer glBulkyItemAt._Just.to itemStorageLimit
+    guardE (length old_contents < item_limit) "Container full"
 
     let new_gs = gs & (player.playerInventory %~ delete item) .
                        (gllAtPlayer glBulkyItemAt._Just.itemContents %~ (:) item)
 
      in go rest new_gs
 
-gmTakeOutItemsByMenu :: GameState -> Maybe GameState
-gmTakeOutItemsByMenu gs = do
-  guard (gmActiveMenu gs == Just ContainerTakeOut)
-
-  items <- gmCurrentlySelectedItems gs
+geTakeOutItemsByMenu :: GameState -> Failing GameState
+geTakeOutItemsByMenu gs = do
+  guardE (gmActiveMenu gs == Just ContainerTakeOut) ""
+  items <- toFailing $ gmCurrentlySelectedItems gs
   
   go items gs <&> gsAddMessage (case items of
     [single_item] -> "Took out " <> itemName single_item Singular <> "."
     [] -> ""
     many_items -> "Took out " <> show (length many_items) <> " items.")
  where
-  go [] gs = Just gs
+  go [] gs = pure gs
   go (item:rest) gs' = do
-    gs <- gmAddItemInventory item gs'
+    gs <- geAddItemInventory item gs'
 
     let old_storage = fromMaybe [] $ gs^?gllAtPlayer glBulkyItemAt._Just.itemContents
         new_storage = delete item old_storage
 
-    guard (new_storage /= old_storage)
+    guardE (new_storage /= old_storage) ""
 
     go rest $ gs & gllAtPlayer glBulkyItemAt._Just.itemContents .~ new_storage
 
 gmPickUpItem :: Item -> GameState -> Maybe GameState
-gmPickUpItem item gs = do
-  let items_on_floor = gs^.itemsAtPlayer
-  guard (item `elem` items_on_floor)
+gmPickUpItem item gs = toMaybe $ gePickUpItem item gs
 
-  new_gs <- gs^.to (gmAddItemInventory item)
+gePickUpItem :: Item -> GameState -> Failing GameState
+gePickUpItem item gs = do
+  let items_on_floor = gs^.itemsAtPlayer
+  guardE (item `elem` items_on_floor) "No such item here"
+
+  new_gs <- gs^.to (geAddItemInventory item)
   return $ new_gs & (itemsAtPlayer %~ delete item)
 
-gmPickUpItemByMenu :: GameState -> Maybe GameState
-gmPickUpItemByMenu gs = do
-  guard (gmActiveMenu gs == Just Pickup)
-  items <- gmCurrentlySelectedItems gs
+gePickUpItemByMenu :: GameState -> Failing GameState
+gePickUpItemByMenu gs = do
+  guardE (gmActiveMenu gs == Just Pickup) ""
+  items <- toFailing $ gmCurrentlySelectedItems gs
 
   go items gs <&> gsAddMessage (case items of
     [single_item] -> "Picked up " <> itemName single_item Singular <> "."
     [] -> ""
     many_items -> "Picked up " <> show (length many_items) <> " items.")
  where
-  go :: [Item] -> GameState -> Maybe GameState
-  go [] gs = Just gs
-  go (item:rest) gs = gmPickUpItem item gs >>= go rest
+  go :: [Item] -> GameState -> Failing GameState
+  go [] gs = pure gs
+  go (item:rest) gs = gePickUpItem item gs >>= go rest
 
-gmDropInventoryItemByMenu :: GameState -> Maybe GameState
-gmDropInventoryItemByMenu gs = do
-  guard (gmActiveMenu gs == Just Drop)
-  items <- gmCurrentlySelectedItems gs
+geDropInventoryItemByMenu :: GameState -> Failing GameState
+geDropInventoryItemByMenu gs = do
+  guardE (gmActiveMenu gs == Just Drop) ""
+  items <- toFailing $ gmCurrentlySelectedItems gs
 
   go items gs <&> gsAddMessage (case items of
     [single_item] -> "Dropped " <> itemName single_item Singular <> "."
     [] -> ""
     many_items -> "Dropped " <> show (length many_items) <> " items.")
  where
-  go :: [Item] -> GameState -> Maybe GameState
-  go [] gs = Just gs
-  go (item:rest) gs = gmDropItem item gs >>= go rest
+  go :: [Item] -> GameState -> Failing GameState
+  go [] gs = pure gs
+  go (item:rest) gs = geDropItem item gs >>= go rest
 
 gmCurrentSelectMode :: GameState -> Maybe SelectMode
 gmCurrentSelectMode gs =
@@ -682,7 +690,7 @@ menuItemHandler Drop = (defaultItemHandler Drop (player.playerInventory))
   , menuName = "Drop items"
   , offKeys = S.fromList "q"
   , selectMode = MultiSelect
-  , menuKeys = M.fromList [('d', ("Drop", (^.to gmDropInventoryItemByMenu)))]
+  , menuKeys = M.fromList [('d', ("Drop", (^.to geDropInventoryItemByMenu)))]
   , prerequisites = \gs -> gmActiveMenu gs == Just Inventory &&
                            not (null $ gs^.player.playerInventory)
   , menuFilter = const True }
@@ -692,7 +700,7 @@ menuItemHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
   , menuName = "Pick up"
   , offKeys = S.fromList "q"
   , selectMode = MultiSelect
-  , menuKeys = M.fromList [(',', ("Pick up", \gs -> gs^.to gmPickUpItemByMenu))]
+  , menuKeys = M.fromList [(',', ("Pick up", \gs -> gs^.to gePickUpItemByMenu))]
 
   , prerequisites = \gs -> not (gsInActiveMenu gs) && not (null $ gs^.itemsAtPlayer)
   , menuFilter = not . isItemBulky
@@ -707,7 +715,7 @@ menuItemHandler ContainerTakeOut = (defaultItemHandler ContainerTakeOut activeMe
   , menuName    = "Take out items"
   , offKeys     = S.fromList "q"
   , selectMode  = MultiSelect
-  , menuKeys = M.fromList [('t', ("Take out", \gs -> gs^.to gmTakeOutItemsByMenu))]
+  , menuKeys = M.fromList [('t', ("Take out", \gs -> gs^.to geTakeOutItemsByMenu))]
   , prerequisites = isJust . bulkies
   , menuFilter = not . isItemBulky
   , toActiveMenuInventory = fromMaybe [] . bulkies
@@ -724,7 +732,7 @@ menuItemHandler ContainerPutIn = (defaultItemHandler ContainerPutIn (player.play
   , menuName    = "Put in items"
   , offKeys     = S.fromList "q"
   , selectMode  = MultiSelect
-  , menuKeys = M.fromList [('p', ("Put in", \gs -> gs^.to gmPutInItemsByMenu))]
+  , menuKeys = M.fromList [('p', ("Put in", \gs -> gs^.to gePutInItemsByMenu))]
   , prerequisites = \gs -> view (player.playerInventory.to (not . null)) gs &&
                            isJust (gs^?gllAtPlayer glBulkyItemAt._Just.itemContents)
   , menuFilter = not . isItemBulky }

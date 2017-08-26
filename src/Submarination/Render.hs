@@ -422,11 +422,13 @@ renderItemMenu item_handler = do
 
   appendText 2 1 Dull Yellow Dull Black ""
  where
-  actionInstructions = M.assocs (menuKeys item_handler) <&> \(ch, (text, _action)) ->
-    ([T.singleton $ toUpper ch], text)
+  actionInstructions gs = M.assocs (menuKeys item_handler) <&> \(ch, (text, action)) ->
+    case action gs of
+      Left err -> ([T.singleton $ toUpper ch], text <> " !" <> err <> "!", Warning)
+      Right _  -> ([T.singleton $ toUpper ch], text, Okay)
 
   otherInstructions = M.assocs (otherKeys item_handler) <&> \(ch, text) ->
-    ([T.singleton $ toUpper ch], text)
+    ([T.singleton $ toUpper ch], text, Okay)
 
   renderArrowedItem item = do
     appendText 2 0 Vivid Green Dull Black "➔"
@@ -451,8 +453,10 @@ renderItemMenu item_handler = do
         then appendText 8 1 fintensity Yellow Dull Black $ itemName item Singular
         else appendText 8 1 fintensity Yellow Dull Black $ show count <> " " <> itemName item Many
 
+    gs <- gr identity
+
     appendText 4 1 Dull White Dull White ""
-    renderKeyInstructions ([(T.singleton <$> (toUpper <$> S.toList (offKeys item_handler)), "Cancel"), (["SPACE"], "Select")] <> actionInstructions <> otherInstructions) 2
+    renderKeyInstructions ([(T.singleton <$> (toUpper <$> S.toList (offKeys item_handler)), "Cancel", Okay), (["SPACE"], "Select", Okay)] <> actionInstructions gs <> otherInstructions) 2
 
   singleOrNotSelectableSelectRender is_single gitems = do
     selection <- gr gmMenuCursor
@@ -469,21 +473,32 @@ renderItemMenu item_handler = do
         then appendText 4 1 fintensity Yellow Dull Black $ itemName item Singular
         else appendText 4 1 fintensity Yellow Dull Black $ show count <> " " <> itemName item Many
 
+    gs <- gr identity
+
     unless is_single $ do
       appendText 4 1 Dull White Dull White ""
-      renderKeyInstructions ([(["SPACE"], "Close")] <> actionInstructions <> otherInstructions) 4
+      renderKeyInstructions ([(["SPACE"], "Close", Okay)] <> actionInstructions gs <> otherInstructions) 4
 
-renderKeyInstructions :: [([Text], Text)] -> Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
+data Usability
+  = Warning
+  | Okay
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
+
+renderKeyInstructions :: [([Text], Text, Usability)] -> Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderKeyInstructions insts original_x = go insts original_x
  where
   go [] _ = return ()
-  go ((key, _action):rest) x | null key = go rest x
-  go ((key, action):rest) x = do
-    appendText x 0 Dull White Dull Black "["
+  go ((key, _action, _):rest) x | null key = go rest x
+  go ((key, action, usability):rest) x = do
+    appendText x 0 fintensity fcolor Dull Black "["
     go2 key (x+1)
    where
+    (fintensity, fcolor) = case usability of
+      Okay    -> (Dull, White)
+      Warning -> (Vivid, Red)
+
     go2 [] x = do
-      appendText x 1 Dull White Dull Black $ "] " <> action
+      appendText x 1 fintensity fcolor Dull Black $ "] " <> action
       go rest original_x
 
     go2 (key1:key2:restkeys) x = do
@@ -567,9 +582,9 @@ renderPossibleTriggerKeys = do
  where
   handlers = menuItemHandler <$> enumFrom (toEnum 0)
 
-  toInstructions :: GameState -> ItemMenuHandler -> Maybe ([Text], Text)
+  toInstructions :: GameState -> ItemMenuHandler -> Maybe ([Text], Text, Usability)
   toInstructions gs handler
-    | prerequisites handler gs = Just (T.singleton . toUpper <$> S.toList (triggerKeys handler), menuName handler)
+    | prerequisites handler gs = Just (T.singleton . toUpper <$> S.toList (triggerKeys handler), menuName handler, Okay)
     | otherwise = Nothing
 
 renderInventorySummary :: Int -> VerticalBoxRender (GameMonadRoTerminal s) ()

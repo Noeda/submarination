@@ -92,8 +92,8 @@ itemMenuAction ch = use (to gmActiveMenuHandler) >>= \case
   Just handler | Just (_, action) <- menuKeys handler^.at ch -> do
     gs <- gm identity
     case action gs of
-      Nothing -> return ()
-      Just new_gs -> do
+      Left{} -> return ()
+      Right new_gs -> do
         put new_gs
         itemMenuOff
 
