@@ -578,7 +578,11 @@ gmPutInItemsByMenu gs = do
     many_items -> "Put in " <> show (length many_items) <> " items.")
  where
   go [] gs = Just gs
-  go (item:rest) gs =
+  go (item:rest) gs = do
+    old_contents <- firstOf (gllAtPlayer glBulkyItemAt._Just.itemContents) gs
+    item_limit <- gs^?gllAtPlayer glBulkyItemAt._Just.to itemStorageLimit
+    guard (length old_contents < item_limit)
+
     let new_gs = gs & (player.playerInventory %~ delete item) .
                        (gllAtPlayer glBulkyItemAt._Just.itemContents %~ (:) item)
 
