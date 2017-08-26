@@ -710,7 +710,8 @@ menuItemHandler ContainerPutIn = (defaultItemHandler ContainerPutIn (player.play
   , offKeys     = S.fromList "q"
   , selectMode  = MultiSelect
   , menuKeys = M.fromList [('p', ("Put in", \gs -> gs^.to gmPutInItemsByMenu))]
-  , prerequisites = view (player.playerInventory.to (not . null))
+  , prerequisites = \gs -> view (player.playerInventory.to (not . null)) gs &&
+                           isJust (gs^?gllAtPlayer glBulkyItemAt._Just.storageBoxContents)
   , menuFilter = not . isItemBulky }
 
 gsIsVendoring :: GameState -> Bool
