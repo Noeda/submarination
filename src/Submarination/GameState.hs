@@ -13,9 +13,14 @@ module Submarination.GameState
   , initialGameState
   , GameState()
   , gsAdvanceTurn
+  , gsAdvanceInputTurn
+  , gsRetractInputTurn
   , gsCycleGame
   , gsTurn
   , gmMoveToDirection
+  -- * Messages
+  , gsAddMessage
+  , gsCurrentMessage
   -- * Level manipulation
   , gsCurrentAreaName
   , gsCurrentLevel
@@ -153,7 +158,9 @@ initialGameState = GameState
   , _activeMenuState = M.empty
   , _vendorMenu      = Nothing
   , _turn = 1
+  , _inputTurn = 1
   , _levels = M.singleton 0 surfaceLevel
+  , _messages = M.empty
   , _sub = Sub { _subPosition = V2 23 (-2)
                , _subTopology = initial_sub_topo }
   , _depth  = 0 }
@@ -222,6 +229,12 @@ gr action = do
 
 gsTurn :: GameState -> Int
 gsTurn gs = gs^.turn
+
+gsAdvanceInputTurn :: GameState -> GameState
+gsAdvanceInputTurn = inputTurn +~ 1
+
+gsRetractInputTurn :: GameState -> GameState
+gsRetractInputTurn = inputTurn -~ 1
 
 gsAdvanceTurn :: GameState -> GameState
 gsAdvanceTurn = execState $ do
@@ -397,6 +410,8 @@ gmAttemptPurchase gs = do
 
   guard (shells >= itemPrice item_selection)
 
+  let add_purchase_text item = gsAddMessage ("Purchased " <> itemName item Singular <> " for " <> show (itemPrice item) <> " shells.") :: GameState -> GameState
+
   if isItemBulky item_selection
     then do
       -- Cannot buy bulky item if dragging something
@@ -405,12 +420,15 @@ gmAttemptPurchase gs = do
       guard (isNothing $ gs^.glBulkyItemAt playerpos)
 
       -- Put bulky item for dragging
-      return $ gs & (player.playerShells -~ itemPrice item_selection) .
-                    (player.playerDragging .~ Just item_selection)
+      return $ (gs & ((player.playerShells -~ itemPrice item_selection) .
+                      (player.playerDragging .~ Just item_selection)))
+                   ^.to (add_purchase_text item_selection)
 
     else return $ case gs^.to (gmAddItemInventory item_selection) of
            Nothing -> gs
-           Just new_gs -> new_gs & player.playerShells -~ itemPrice item_selection
+           Just new_gs ->
+             (new_gs & (player.playerShells -~ itemPrice item_selection))
+                     ^.to (add_purchase_text item_selection)
 
 gmCurrentVendorCreature :: GameState -> Maybe Creature
 gmCurrentVendorCreature gs = runMaybeExcept $ do
@@ -494,7 +512,7 @@ gmCurrentlySelectedItems :: GameState -> Maybe [Item]
 gmCurrentlySelectedItems gs = do
   handler <- gmActiveMenuHandler gs
   case selectMode handler of
-    SingleSelect  -> (\x -> [x]) <$> gmCurrentlySelectedSingleItem gs
+    SingleSelect  -> (:[]) <$> gmCurrentlySelectedSingleItem gs
     MultiSelect   -> do
       selected_set <- gs^?activeMenuState.at (menuStateKey handler)._Just._1
       let items = filter (menuFilter handler) (gs^.itemLens handler)
@@ -555,7 +573,11 @@ gmPickUpItemByMenu :: GameState -> Maybe GameState
 gmPickUpItemByMenu gs = do
   guard (gmActiveMenu gs == Just Pickup)
   items <- gmCurrentlySelectedItems gs
-  go items gs
+
+  go items gs <&> gsAddMessage (case items of
+    [single_item] -> "Picked up " <> itemName single_item Singular <> "."
+    [] -> ""
+    many_items -> "Picked up " <> show (length many_items) <> " items.")
  where
   go :: [Item] -> GameState -> Maybe GameState
   go [] gs = Just gs
@@ -565,7 +587,11 @@ gmDropInventoryItemByMenu :: GameState -> Maybe GameState
 gmDropInventoryItemByMenu gs = do
   guard (gmActiveMenu gs == Just Drop)
   items <- gmCurrentlySelectedItems gs
-  go items gs
+
+  go items gs <&> gsAddMessage (case items of
+    [single_item] -> "Dropped " <> itemName single_item Singular <> "."
+    [] -> ""
+    many_items -> "Dropped " <> show (length many_items) <> " items.")
  where
   go :: [Item] -> GameState -> Maybe GameState
   go [] gs = Just gs
@@ -616,11 +642,21 @@ menuItemHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
   , prerequisites = \gs -> not (gsInActiveMenu gs) && not (null $ gs^.itemsAtPlayer)
   , menuFilter = not . isItemBulky
   , quickEnterAction = \gs -> case filter (not . isItemBulky) $ gs^.itemsAtPlayer of
-      [single_item] -> gs^.to (gmPickUpItem single_item)
+      [single_item] -> gs ^?
+        to (gmPickUpItem single_item)._Just.
+        to (gsAddMessage $ "Picked up " <> itemName single_item Singular <> ".")
       _ -> Nothing }
 
 gsIsVendoring :: GameState -> Bool
 gsIsVendoring gs = isJust $ gs^.vendorMenu
+
+getSelection :: ItemMenuHandler -> GameState -> (Int, Int)
+getSelection handler gs =
+  let items = filter (menuFilter handler) (gs^.itemLens handler)
+      menu_selection = fromMaybe 0 $ gs^?activeMenuState.at (menuStateKey handler)._Just._2
+      max_selection = M.size (groupItems items)-1
+
+   in (max_selection, max 0 $ min max_selection menu_selection)
 
 gmCursorModification :: (Int -> Int) -> GameState -> Maybe GameState
 gmCursorModification action gs =
@@ -628,11 +664,7 @@ gmCursorModification action gs =
  where
   activeMenuCursorModification = do
     handler <- gmActiveMenuHandler gs
-
-    let items = filter (menuFilter handler) (gs^.itemLens handler)
-        menu_selection = fromMaybe 0 $ gs^?activeMenuState.at (menuStateKey handler)._Just._2
-        max_selection = M.size (groupItems items)-1
-        current_selection = max 0 $ min max_selection menu_selection
+    let (max_selection, current_selection) = getSelection handler gs
         new_selection = action current_selection
 
     guard (new_selection >= 0 && new_selection <= max_selection)
@@ -652,22 +684,14 @@ gmCursorModification action gs =
 
     return $ gs & vendorMenu .~ Just new_selection
 
-gmMenuSelections :: GameState -> (Maybe (S.Set Int))
+gmMenuSelections :: GameState -> Maybe (S.Set Int)
 gmMenuSelections gs = do
   handler <- gmActiveMenuHandler gs
   guard (selectMode handler == MultiSelect)
   gs^?activeMenuState.at (menuStateKey handler)._Just._1
 
 gmMenuCursor :: GameState -> Maybe Int
-gmMenuCursor gs = do
-  handler <- gmActiveMenuHandler gs
-
-  let items = filter (menuFilter handler) (gs^.itemLens handler)
-      menu_selection = fromMaybe 0 $ gs^?activeMenuState.at (menuStateKey handler)._Just._2
-      max_selection = M.size (groupItems items)-1
-      current_selection = max 0 $ min max_selection menu_selection
-
-  return current_selection
+gmMenuCursor gs = gmActiveMenuHandler gs <&> snd . flip getSelection gs
 
 gmSelectToggleCursorItem :: GameState -> Maybe GameState
 gmSelectToggleCursorItem gs = do
@@ -683,4 +707,11 @@ gmIncreaseMenuCursor = gmCursorModification (+1)
 
 gmDecreaseMenuCursor :: GameState -> Maybe GameState
 gmDecreaseMenuCursor = gmCursorModification (\x -> x - 1)
+
+gsAddMessage :: Text -> GameState -> GameState
+gsAddMessage message gs =
+  gs & messages.at (gs^.inputTurn) %~ Just . (<> " " <> message) . fromMaybe ""
+
+gsCurrentMessage :: GameState -> Text
+gsCurrentMessage gs = fromMaybe "" $ gs^.messages.at (gs^.inputTurn)
 

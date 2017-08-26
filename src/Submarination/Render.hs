@@ -311,13 +311,18 @@ renderBar label value max_value x y bar_intensity bar_color unbar_intensity unba
     setText (x+13) y bar_intensity bar_color unbar_intensity unbar_color (bar_txt_head <> bar_txt_tail)
     setText x y Vivid White Dull Black $ label <> show value <> "/" <> show max_value
 
+data ActiveSide
+  = LeftSide
+  | RightSide
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
+
 -- | Type that keeps track of Y position while we render stuff on hud. This
 -- pushes text below if there are messages or whatever. Monad transformer.
-newtype VerticalBoxRender m a = VerticalBoxRender (StateT Int m a)
+newtype VerticalBoxRender m a = VerticalBoxRender (StateT (Int, Int, ActiveSide) m a)
   deriving ( Functor, Applicative, Monad )
 
 instance MonadTrans VerticalBoxRender where
-  lift action = VerticalBoxRender $ lift action
+  lift = VerticalBoxRender . lift
 
 instance MonadReader r m => MonadReader r (VerticalBoxRender m) where
   ask = VerticalBoxRender $ lift ask
@@ -327,23 +332,39 @@ instance MonadReader r m => MonadReader r (VerticalBoxRender m) where
     put new_st
     return result
 
-runVerticalBoxRender :: Monad m => Int -> VerticalBoxRender m a -> m a
-runVerticalBoxRender y_start (VerticalBoxRender stateful) =
-  evalStateT stateful y_start
+withSide :: Monad m => ActiveSide -> VerticalBoxRender m a -> VerticalBoxRender m a
+withSide side (VerticalBoxRender st) = VerticalBoxRender $
+  use _3 >>= \old_side ->
+    (_3 .= side) *> st <* (_3 .= old_side)
+
+getSideY :: Monad m => VerticalBoxRender m Int
+getSideY = VerticalBoxRender $
+  use _3 >>= \case
+    LeftSide -> use _1
+    RightSide -> use _2
+
+putSideY :: Monad m => Int -> VerticalBoxRender m ()
+putSideY y = VerticalBoxRender $ use _3 >>= \case
+  LeftSide  -> _1 .= y
+  RightSide -> _2 .= y
+
+runVerticalBoxRender :: Monad m => Int -> Int -> VerticalBoxRender m a -> m a
+runVerticalBoxRender y_left_start y_right_start (VerticalBoxRender stateful) =
+  evalStateT stateful (y_left_start, y_right_start, RightSide)
 
 appendText :: Int -> Int -> ColorIntensity -> Color -> ColorIntensity -> Color -> Text -> VerticalBoxRender (GameMonadRoTerminal s) ()
-appendText x skip fintensity fcolor bintensity bcolor txt = VerticalBoxRender $ do
-  y <- get
-  put (y+skip)
+appendText x skip fintensity fcolor bintensity bcolor txt = do
+  y <- getSideY
+  putSideY (y+skip)
 
   lift $ lift $ setText x y fintensity fcolor bintensity bcolor txt
 
 appendWrappedText :: Int -> Int -> Int -> ColorIntensity -> Color -> ColorIntensity -> Color -> Text -> VerticalBoxRender (GameMonadRoTerminal s) ()
-appendWrappedText x skip max_width fintensity fcolor bintensity bcolor txt = VerticalBoxRender $ do
-  y <- get
+appendWrappedText x skip max_width fintensity fcolor bintensity bcolor txt = do
+  y <- getSideY
   height <- lift $ lift $ setWrappedText x y max_width fintensity fcolor bintensity bcolor txt
 
-  put (y+height+skip)
+  putSideY (y+height+skip)
 
 renderHud :: Integer -> GameMonadRoTerminal s ()
 renderHud _monotonic_time_ns = do
@@ -380,9 +401,9 @@ renderHud _monotonic_time_ns = do
 
   case maybe_item_menu_handler of
     Just item_menu_handler ->
-      runVerticalBoxRender 2 (renderItemMenu item_menu_handler)
+      runVerticalBoxRender 1 2 (renderItemMenu item_menu_handler)
     _ -> if | on_surface
-               -> runVerticalBoxRender 6 renderSurfaceHud
+               -> runVerticalBoxRender 1 6 renderSurfaceHud
             | otherwise
                -> return ()
 
@@ -401,11 +422,16 @@ renderItemMenu item_handler = do
 
   appendText 2 1 Dull Yellow Dull Black ""
  where
-  actionInstructions = (M.assocs $ menuKeys item_handler) <&> \(ch, (text, _action)) ->
+  actionInstructions = M.assocs (menuKeys item_handler) <&> \(ch, (text, _action)) ->
     ([T.singleton $ toUpper ch], text)
 
-  otherInstructions = (M.assocs $ otherKeys item_handler) <&> \(ch, text) ->
+  otherInstructions = M.assocs (otherKeys item_handler) <&> \(ch, text) ->
     ([T.singleton $ toUpper ch], text)
+
+  renderArrowedItem item = do
+    appendText 2 0 Vivid Green Dull Black "➔"
+    lift $ lift $ setText 53 6 Vivid White Dull Black $ itemName item Singular
+    void $ lift $ lift $ setWrappedText 53 8 25 Dull White Dull Black $ itemDescription item
 
   multiSelectRender gitems = do
     cursor <- gr gmMenuCursor
@@ -418,17 +444,15 @@ renderItemMenu item_handler = do
         then appendText 4 0 fintensity Yellow Dull Black "[✓]"
         else appendText 4 0 fintensity Yellow Dull Black "[ ]"
 
-      when (Just index == cursor) $ do
-        appendText 2 0 Vivid Green Dull Black "➔"
-        lift $ lift $ setText 53 6 Vivid White Dull Black $ itemName item Singular
-        void $ lift $ lift $ setWrappedText 53 8 25 Dull White Dull Black $ itemDescription item
+      when (Just index == cursor) $
+        renderArrowedItem item
 
       if count == 1
         then appendText 8 1 fintensity Yellow Dull Black $ itemName item Singular
         else appendText 8 1 fintensity Yellow Dull Black $ show count <> " " <> itemName item Many
 
     appendText 4 1 Dull White Dull White ""
-    renderKeyInstructions ([((T.singleton <$> (toUpper <$> S.toList (offKeys item_handler))), "Cancel"), (["SPACE"], "Select")] <> actionInstructions <> otherInstructions) 2
+    renderKeyInstructions ([(T.singleton <$> (toUpper <$> S.toList (offKeys item_handler)), "Cancel"), (["SPACE"], "Select")] <> actionInstructions <> otherInstructions) 2
 
   singleOrNotSelectableSelectRender is_single gitems = do
     selection <- gr gmMenuCursor
@@ -438,10 +462,8 @@ renderItemMenu item_handler = do
                          then Vivid
                          else Dull
 
-      when (Just index == selection && is_single) $ do
-        appendText 2 0 Vivid Green Dull Black "➔"
-        lift $ lift $ setText 53 6 Vivid White Dull Black $ itemName item Singular
-        void $ lift $ lift $ setWrappedText 53 8 25 Dull White Dull Black $ itemDescription item
+      when (Just index == selection && is_single) $
+        renderArrowedItem item
 
       if count == 1
         then appendText 4 1 fintensity Yellow Dull Black $ itemName item Singular
@@ -526,6 +548,12 @@ renderDragging = gr (^.glPlayer.playerDragging) >>= \case
     appendText 53 0 Dull White Dull Black "[ ] Stop"
     appendText 54 2 Vivid Green Dull Black "G"
 
+renderMessages :: VerticalBoxRender (GameMonadRoTerminal s) ()
+renderMessages =
+  T.strip <$> gr gsCurrentMessage >>= \msg ->
+    unless (T.null msg) $
+      appendWrappedText 2 2 25 Vivid Cyan Dull Black msg
+
 renderTurn :: GameMonadRoTerminal s ()
 renderTurn = do
   current_turn <- gr gsTurn
@@ -561,38 +589,33 @@ renderSurfaceHud = do
   renderDragging
   renderItemPileHud
 
-  ((,) <$> gr gmCurrentVendorCreature <*> gr (^.glCurrentVendorMenuSelection)) >>= \case
+  withSide LeftSide $ ((,) <$> gr gmCurrentVendorCreature <*> gr (^.glCurrentVendorMenuSelection)) >>= \case
     (Just vendor, Just menu_selection) -> do
       let desc = vendorDescription vendor
-      _ <- lift2 $ setWrappedText 3 1 25 Dull White Dull Black desc
+      _ <- appendWrappedText 3 2 25 Dull White Dull Black desc
 
-      let items = zip [8..] (vendorItems vendor)
-          last_y = length items + 8
-
-      for_ items $ \(y, item) -> do
-        let selection_num = y-8
+      for_ (zip (vendorItems vendor) [0..]) $ \(item, selection_num) -> do
         if selection_num == menu_selection
-          then do lift2 $ do
-                    setText 2 y Vivid Green Dull Black "➔"
-                    setText 4 y Vivid Blue Dull Black (itemName item Singular)
-                  appendText 53 2 Vivid White Dull Black (itemName item Singular)
-                  appendWrappedText 53 2 25 Dull White Dull Black (itemDescription item)
-          else lift2 $ setText 4 y Dull Blue Dull Black (itemName item Singular)
+          then do appendText 2 0 Vivid Green Dull Black "➔"
+                  appendText 4 0 Vivid Blue Dull Black (itemName item Singular)
+                  withSide RightSide $ do
+                    appendText 53 2 Vivid White Dull Black (itemName item Singular)
+                    appendWrappedText 53 2 25 Dull White Dull Black (itemDescription item)
+          else appendText 4 0 Dull Blue Dull Black (itemName item Singular)
 
-        lift2 $ do
-          setText 24 y Vivid Yellow Dull Black "$"
-          setText 25 y Vivid White Dull Black $ show $ itemPrice item
+        appendText 24 0 Vivid Yellow Dull Black "$"
+        appendText 25 1 Vivid White Dull Black $ show $ itemPrice item
 
-      lift2 $ do
-        setText 2 (last_y+2) Dull White Dull Black "[ ] ↑ [ ] ↓"
-        setText 2 (last_y+3) Dull White Dull Black "[     ] Purchase"
-        setText 3 (last_y+2) Vivid Green Dull Black "A"
-        setText 9 (last_y+2) Vivid Green Dull Black "Z"
-        setText 3 (last_y+3) Vivid Green Dull Black "SPACE"
+      appendText 2 1 Dull White Dull Black ""
+      appendText 2 0 Dull White Dull Black "[ ] ↑ [ ] ↓"
+      appendText 3 0 Vivid Green Dull Black "A"
+      appendText 9 1 Vivid Green Dull Black "Z"
+      appendText 2 0 Dull White Dull Black "[     ] Purchase"
+      appendText 3 1 Vivid Green Dull Black "SPACE"
 
     _ -> return ()
 
+  withSide LeftSide renderMessages
+
   renderInventorySummary 53 True
- where
-  lift2 = lift . lift
 

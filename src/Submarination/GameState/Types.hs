@@ -6,6 +6,7 @@ module Submarination.GameState.Types
   , vendorMenu
   , depth
   , turn
+  , inputTurn
   , levels
   , Sub(..)
   , subTopology
@@ -26,6 +27,7 @@ module Submarination.GameState.Types
   , glCellAt
   , glItemsAt
   , glCurrentLevel
+  , messages
   , HasGameState(..)
   , SelectMode(..) )
   where
@@ -61,7 +63,9 @@ data GameState = GameState
   , _vendorMenu      :: !(Maybe Int)
   , _depth           :: !Int
   , _turn            :: !Int
-  , _levels          :: !(M.Map Int Level) }
+  , _inputTurn       :: !Int
+  , _levels          :: !(M.Map Int Level)
+  , _messages        :: !(M.Map Int Text) }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data Player = Player

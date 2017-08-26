@@ -44,9 +44,12 @@ startGame knob = do
 
   in_active_menu <- gm gsInActiveMenu
   in_vendor <- gm gsIsVendoring
-  gs <- gm identity
+  gs_pre_input <- gm identity
 
   ch <- getInputChar
+  let gs = gsAdvanceInputTurn gs_pre_input
+  put gs
+
   case ch of
 #ifndef GHCJS_BROWSER
     'm' -> return ()
@@ -77,7 +80,7 @@ startGame knob = do
         'g' | not in_active_menu ->
           drag
 
-        _ -> return ()
+        _ -> modify gsRetractInputTurn
 
       startGame knob
 
@@ -122,8 +125,7 @@ drag = use (glPlayer.playerDragging) >>= \case
         modify gsAdvanceTurn
 
 itemTrigger :: Monad m => ActiveMenuState -> GameMonad m ()
-itemTrigger ams = do
-  modifyConditional $ gsEnterMenu ams
+itemTrigger ams = modifyConditional $ gsEnterMenu ams
 
 itemMenuOff :: Monad m => GameMonad m ()
 itemMenuOff = modifyConditional gmCloseMenu
