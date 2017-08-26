@@ -125,7 +125,7 @@ drag = use (glPlayer.playerDragging) >>= \case
         modify gsAdvanceTurn
 
 itemTrigger :: Monad m => ActiveMenuState -> GameMonad m ()
-itemTrigger ams = modifyConditional $ gsEnterMenu ams
+itemTrigger = modifyConditional . gmEnterMenu
 
 itemMenuOff :: Monad m => GameMonad m ()
 itemMenuOff = modifyConditional gmCloseMenu

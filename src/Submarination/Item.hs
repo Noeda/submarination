@@ -1,12 +1,11 @@
 module Submarination.Item
   ( Item(..)
   , Plural(..)
-
   , isItemBulky
-
   , itemName
   , itemDescription
   , itemPrice
+  , storageBoxContents
   , groupItems )
   where
 
@@ -104,4 +103,10 @@ isItemBulky Freezer = True
 isItemBulky Refrigerator = True
 isItemBulky Microwave = True
 isItemBulky _ = False
+
+storageBoxContents :: Prism' Item [Item]
+storageBoxContents = prism' StorageBox $ \case
+  StorageBox items -> Just items
+  _ -> Nothing
+
 
