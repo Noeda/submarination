@@ -568,7 +568,7 @@ gmDropItem item gs = do
 gmPutInItemsByMenu :: GameState -> Maybe GameState
 gmPutInItemsByMenu gs = do
   guard (gmActiveMenu gs == Just ContainerPutIn)
-  guard (isJust $ gs^?gllAtPlayer glBulkyItemAt._Just.storageBoxContents)
+  guard (isJust $ firstOf (gllAtPlayer glBulkyItemAt._Just.itemContents) gs)
 
   items <- gmCurrentlySelectedItems gs
 
@@ -580,7 +580,7 @@ gmPutInItemsByMenu gs = do
   go [] gs = Just gs
   go (item:rest) gs =
     let new_gs = gs & (player.playerInventory %~ delete item) .
-                       (gllAtPlayer glBulkyItemAt._Just.storageBoxContents %~ (:) item)
+                       (gllAtPlayer glBulkyItemAt._Just.itemContents %~ (:) item)
 
      in go rest new_gs
 
@@ -599,12 +599,12 @@ gmTakeOutItemsByMenu gs = do
   go (item:rest) gs' = do
     gs <- gmAddItemInventory item gs'
 
-    let old_storage = fromMaybe [] $ gs^?gllAtPlayer glBulkyItemAt._Just.storageBoxContents
+    let old_storage = fromMaybe [] $ gs^?gllAtPlayer glBulkyItemAt._Just.itemContents
         new_storage = delete item old_storage
 
     guard (new_storage /= old_storage)
 
-    go rest $ gs & gllAtPlayer glBulkyItemAt._Just.storageBoxContents .~ new_storage
+    go rest $ gs & gllAtPlayer glBulkyItemAt._Just.itemContents .~ new_storage
 
 gmPickUpItem :: Item -> GameState -> Maybe GameState
 gmPickUpItem item gs = do
@@ -703,7 +703,7 @@ menuItemHandler ContainerTakeOut = (defaultItemHandler ContainerTakeOut activeMe
   , toActiveMenuInventory = fromMaybe [] . bulkies
   }
  where
-  bulkies = firstOf (gllAtPlayer glBulkyItemAt._Just.storageBoxContents)
+  bulkies = firstOf (gllAtPlayer glBulkyItemAt._Just.itemContents)
 
 menuItemHandler ContainerPutIn = (defaultItemHandler ContainerPutIn (player.playerInventory))
   { triggerKeys = S.fromList "p"
@@ -711,7 +711,7 @@ menuItemHandler ContainerPutIn = (defaultItemHandler ContainerPutIn (player.play
   , selectMode  = MultiSelect
   , menuKeys = M.fromList [('p', ("Put in", \gs -> gs^.to gmPutInItemsByMenu))]
   , prerequisites = \gs -> view (player.playerInventory.to (not . null)) gs &&
-                           isJust (gs^?gllAtPlayer glBulkyItemAt._Just.storageBoxContents)
+                           isJust (gs^?gllAtPlayer glBulkyItemAt._Just.itemContents)
   , menuFilter = not . isItemBulky }
 
 gsIsVendoring :: GameState -> Bool

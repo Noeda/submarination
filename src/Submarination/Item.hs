@@ -5,6 +5,7 @@ module Submarination.Item
   , itemName
   , itemDescription
   , itemPrice
+  , itemContents
   , storageBoxContents
   , groupItems )
   where
@@ -19,9 +20,9 @@ data Item
   | Poylent
   | Chicken
   | Potato
-  | Freezer
-  | Refrigerator
-  | Microwave
+  | Freezer [Item]
+  | Refrigerator [Item]
+  | Microwave [Item]
   | Whiskey
   | StorageBox [Item]
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
@@ -47,12 +48,12 @@ itemName Chicken        Singular     = "a chicken"
 itemName Chicken        Many         = "chickens"
 itemName Potato         Singular     = "a potato"
 itemName Potato         Many         = "potatoes"
-itemName Freezer        Singular     = "a freezer"
-itemName Freezer        Many         = "freezers"
-itemName Refrigerator   Singular     = "a refrigerator"
-itemName Refrigerator   Many         = "refrigerators"
-itemName Microwave      Singular     = "a microwave"
-itemName Microwave      Many         = "microwaves"
+itemName Freezer{}      Singular     = "a freezer"
+itemName Freezer{}      Many         = "freezers"
+itemName Refrigerator{} Singular     = "a refrigerator"
+itemName Refrigerator{} Many         = "refrigerators"
+itemName Microwave{}    Singular     = "a microwave"
+itemName Microwave{}    Many         = "microwaves"
 itemName Whiskey        Singular     = "a bottle of whiskey"
 itemName Whiskey        Many         = "bottles of whiskey"
 itemName StorageBox{}   Singular     = "a storage box"
@@ -67,11 +68,11 @@ itemDescription Chicken =
   "A common avian delicacy. Chicken is rich in protein and actually tastes like something. However, chicken spoils quickly if it's not refrigerated or frozen and it must be warmed up before eaten."
 itemDescription Potato =
   "How many potatoes does it take to kill an Irishman? Answer: None."
-itemDescription Freezer =
+itemDescription Freezer{} =
   "As long as it is powered, freezer can stop the spoilage of any food. However, the nutritional quality of some foods can decrease if frozen."
-itemDescription Refrigerator =
+itemDescription Refrigerator{} =
   "Refrigerator keeps foods in low temperature as long as it is powered."
-itemDescription Microwave =
+itemDescription Microwave{} =
   "Put food in. Press button. Wait until you hear a beep. Take food out."
 itemDescription Whiskey =
   "Love makes the world go around? Nonsense. Whiskey makes it go round twice as fast."
@@ -89,20 +90,27 @@ itemPrice SardineTin   = 10
 itemPrice Poylent      = 100
 itemPrice Chicken      = 50
 itemPrice Potato       = 10
-itemPrice Freezer      = 200
-itemPrice Refrigerator = 150
-itemPrice Microwave    = 150
 itemPrice Whiskey      = 100
-itemPrice (StorageBox inner_items) = 300 + sum (itemPrice <$> inner_items)
+itemPrice (StorageBox inner_items)   = 300 + sum (itemPrice <$> inner_items)
+itemPrice (Freezer inner_items)      = 200 + sum (itemPrice <$> inner_items)
+itemPrice (Refrigerator inner_items) = 150 + sum (itemPrice <$> inner_items)
+itemPrice (Microwave inner_items)    = 150 + sum (itemPrice <$> inner_items)
 
 -- bulkiness = can I carry more than one and can there be more than one of
 -- these per square?
 isItemBulky :: Item -> Bool
 isItemBulky StorageBox{} = True
-isItemBulky Freezer = True
-isItemBulky Refrigerator = True
-isItemBulky Microwave = True
+isItemBulky Freezer{} = True
+isItemBulky Refrigerator{} = True
+isItemBulky Microwave{} = True
 isItemBulky _ = False
+
+itemContents :: Traversal' Item [Item]
+itemContents fun (StorageBox items)   = StorageBox <$> fun items
+itemContents fun (Freezer items)      = Freezer <$> fun items
+itemContents fun (Refrigerator items) = Refrigerator <$> fun items
+itemContents fun (Microwave items)    = Microwave <$> fun items
+itemContents _fun x = pure x
 
 storageBoxContents :: Prism' Item [Item]
 storageBoxContents = prism' StorageBox $ \case

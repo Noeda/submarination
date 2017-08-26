@@ -24,9 +24,9 @@ vendorItems FoodVendor =
   ,Poylent
   ,Chicken
   ,Potato
-  ,Freezer
-  ,Refrigerator
-  ,Microwave
+  ,Freezer []
+  ,Refrigerator []
+  ,Microwave []
   ,Whiskey]
 vendorItems _ = []
 
