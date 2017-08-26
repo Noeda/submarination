@@ -650,6 +650,7 @@ defaultItemHandler :: ActiveMenuState -> Lens' GameState [Item] -> ItemMenuHandl
 defaultItemHandler key item_lens = ItemMenuHandler
   { triggerKeys           = S.empty
   , offKeys               = S.empty
+  , menuName              = "<UNKNOWN>"
   , menuStateKey          = key
   , selectMode            = NotSelectable
   , menuKeys              = M.empty
@@ -663,15 +664,18 @@ defaultItemHandler key item_lens = ItemMenuHandler
 menuItemHandler :: ActiveMenuState -> ItemMenuHandler
 menuItemHandler Inventory = (defaultItemHandler Inventory (player.playerInventory))
   { triggerKeys = S.fromList "i"
+  , menuName = "Inventory"
   , offKeys = S.fromList "qi "
   , selectMode = NotSelectable
   , menuKeys = M.empty
-  , prerequisites = not . gsInActiveMenu
+  , prerequisites = \gs -> not (gsInActiveMenu gs) &&
+                           not (null $ gs^.player.playerInventory)
   , menuFilter = const True
   , otherKeys = M.fromList [('d', "Drop items")] }
 
 menuItemHandler Drop = (defaultItemHandler Drop (player.playerInventory))
   { triggerKeys = S.fromList "d"
+  , menuName = "Drop items"
   , offKeys = S.fromList "q"
   , selectMode = MultiSelect
   , menuKeys = M.fromList [('d', ("Drop", (^.to gmDropInventoryItemByMenu)))]
@@ -681,6 +685,7 @@ menuItemHandler Drop = (defaultItemHandler Drop (player.playerInventory))
 
 menuItemHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
   { triggerKeys = S.fromList ","
+  , menuName = "Pick up"
   , offKeys = S.fromList "q"
   , selectMode = MultiSelect
   , menuKeys = M.fromList [(',', ("Pick up", \gs -> gs^.to gmPickUpItemByMenu))]
@@ -695,6 +700,7 @@ menuItemHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
 
 menuItemHandler ContainerTakeOut = (defaultItemHandler ContainerTakeOut activeMenuInventory)
   { triggerKeys = S.fromList "t"
+  , menuName    = "Take out items"
   , offKeys     = S.fromList "q"
   , selectMode  = MultiSelect
   , menuKeys = M.fromList [('t', ("Take out", \gs -> gs^.to gmTakeOutItemsByMenu))]
@@ -703,10 +709,15 @@ menuItemHandler ContainerTakeOut = (defaultItemHandler ContainerTakeOut activeMe
   , toActiveMenuInventory = fromMaybe [] . bulkies
   }
  where
-  bulkies = firstOf (gllAtPlayer glBulkyItemAt._Just.itemContents)
+  bulkies :: GameState -> Maybe [Item]
+  bulkies gs = do
+    cont <- firstOf (gllAtPlayer glBulkyItemAt._Just.itemContents) gs
+    guard (not $ null cont)
+    pure cont
 
 menuItemHandler ContainerPutIn = (defaultItemHandler ContainerPutIn (player.playerInventory))
   { triggerKeys = S.fromList "p"
+  , menuName    = "Put in items"
   , offKeys     = S.fromList "q"
   , selectMode  = MultiSelect
   , menuKeys = M.fromList [('p', ("Put in", \gs -> gs^.to gmPutInItemsByMenu))]

@@ -141,6 +141,7 @@ glCurrentLevel = lens get_it set_it
 
 data ItemMenuHandler = ItemMenuHandler
   { triggerKeys           :: S.Set Char
+  , menuName              :: Text
   , offKeys               :: S.Set Char
   , quickEnterAction      :: GameState -> Maybe GameState
   , menuStateKey          :: !ActiveMenuState

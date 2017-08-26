@@ -409,7 +409,7 @@ renderHud _monotonic_time_ns = do
 
 renderItemMenu :: ItemMenuHandler -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderItemMenu item_handler = do
-  renderInventorySummary 2 False
+  renderInventorySummary 2
 
   items <- filter (menuFilter item_handler) <$> gr (^.itemLens item_handler)
   let gitems = groupItems items
@@ -474,7 +474,7 @@ renderItemMenu item_handler = do
       renderKeyInstructions ([(["SPACE"], "Close")] <> actionInstructions <> otherInstructions) 4
 
 renderKeyInstructions :: [([Text], Text)] -> Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
-renderKeyInstructions = go
+renderKeyInstructions insts original_x = go insts original_x
  where
   go [] _ = return ()
   go ((key, _action):rest) x | null key = go rest x
@@ -483,8 +483,8 @@ renderKeyInstructions = go
     go2 key (x+1)
    where
     go2 [] x = do
-      appendText x 0 Dull White Dull Black $ "] " <> action
-      go rest (x+textWidth action + 3)
+      appendText x 1 Dull White Dull Black $ "] " <> action
+      go rest original_x
 
     go2 (key1:key2:restkeys) x = do
       appendText x 0 Vivid Green Dull Black key1
@@ -515,10 +515,9 @@ renderItemPileHud = do
 
   appendText 53 1 Dull White Dull Black ""
 
-  unless (null items) $ do
-    appendText 53 0 Dull White Dull Black "[ ] Pick up [ ] Drag"
-    appendText 54 0 Vivid Green Dull Black ","
-    appendText 66 2 Vivid Green Dull Black "G"
+  unless (null $ filter isItemBulky items) $ do
+    appendText 53 0 Dull White Dull Black "[ ] Drag"
+    appendText 54 2 Vivid Green Dull Black "G"
 
 statusAppearance :: Status -> (ColorIntensity, Color, ColorIntensity, Color)
 statusAppearance Slow = (Dull, Red, Dull, Black)
@@ -561,22 +560,28 @@ renderTurn = do
   let turn_text = "T: " <> show current_turn
   lift $ setText (80-textWidth turn_text) 0 Vivid White Dull Black turn_text
 
-renderInventorySummary :: Int -> Bool -> VerticalBoxRender (GameMonadRoTerminal s) ()
-renderInventorySummary x show_keys = do
+renderPossibleTriggerKeys :: VerticalBoxRender (GameMonadRoTerminal s) ()
+renderPossibleTriggerKeys = do
+  gs <- gr identity
+  renderKeyInstructions (catMaybes (toInstructions gs <$> handlers)) 53
+ where
+  handlers = menuItemHandler <$> enumFrom (toEnum 0)
+
+  toInstructions :: GameState -> ItemMenuHandler -> Maybe ([Text], Text)
+  toInstructions gs handler
+    | prerequisites handler gs = Just (T.singleton . toUpper <$> S.toList (triggerKeys handler), menuName handler)
+    | otherwise = Nothing
+
+renderInventorySummary :: Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
+renderInventorySummary x = do
   inventory <- gr (^.glPlayer.playerInventory)
   let num_items = length inventory
-      show_inventory_key_thing = when show_keys $ do
-        appendText x 0 Dull White Dull Black "[ ] Inventory"
-        appendText (x+1) 2 Vivid Green Dull Black "I"
-
   if | num_items == 0
        -> appendText x 2 Vivid White Dull Black "Not carrying anything."
      | num_items == 1
-       -> do appendText x 2 Vivid White Dull Black "Carrying 1 item."
-             show_inventory_key_thing
+       -> appendText x 2 Vivid White Dull Black "Carrying 1 item."
      | otherwise
-       -> do appendText x 2 Vivid White Dull Black $ "Carrying " <> show num_items <> " items."
-             show_inventory_key_thing
+       -> appendText x 2 Vivid White Dull Black $ "Carrying " <> show num_items <> " items."
 
 renderSurfaceHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderSurfaceHud = do
@@ -617,5 +622,6 @@ renderSurfaceHud = do
 
   withSide LeftSide renderMessages
 
-  renderInventorySummary 53 True
+  renderInventorySummary 53
+  renderPossibleTriggerKeys
 
