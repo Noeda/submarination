@@ -575,7 +575,7 @@ gmCurrentlySelectedSingleItem gs = do
   return $ fst $ M.assocs gitems !! current_selection
 
 singleSelection :: Prism' (M.Map Int Int) Int
-singleSelection = prism' (flip M.singleton 1) $ \sset ->
+singleSelection = prism' (`M.singleton` 1) $ \sset ->
   if M.size sset == 1
     then case M.findMin sset of
            (key, 1) -> Just key

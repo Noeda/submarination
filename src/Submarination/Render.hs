@@ -537,7 +537,7 @@ renderItemPileHud = do
 
   appendText 53 1 Dull White Dull Black ""
 
-  unless (null $ filter isItemBulky items) $ do
+  unless (not $ any isItemBulky items) $ do
     appendText 53 0 Dull White Dull Black "[ ] Drag"
     appendText 54 2 Vivid Green Dull Black "G"
 

@@ -159,9 +159,7 @@ vendorMenu ch = ((,) <$> gm gmCurrentVendorCreature <*> gm (^.glCurrentVendorMen
 modifyConditional :: MonadState s m => (s -> Maybe s) -> m ()
 modifyConditional modifier = do
   old <- get
-  case modifier old of
-    Nothing -> return ()
-    Just new -> put new
+  for_ (modifier old) put
 
 move :: Char -> (GameState -> Maybe GameState)
 move 'j' = gmMoveToDirection D2

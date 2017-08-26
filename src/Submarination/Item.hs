@@ -98,10 +98,10 @@ itemPrice (Refrigerator inner_items) = 150 + sum (itemPrice <$> inner_items)
 itemPrice (Microwave inner_items)    = 150 + sum (itemPrice <$> inner_items)
 
 itemStorageLimit :: Item -> Int
-itemStorageLimit (StorageBox{})   = 20
-itemStorageLimit (Freezer{})      = 10
-itemStorageLimit (Microwave{})    = 1
-itemStorageLimit (Refrigerator{}) = 10
+itemStorageLimit StorageBox{}   = 20
+itemStorageLimit Freezer{}      = 10
+itemStorageLimit Microwave{}    = 1
+itemStorageLimit Refrigerator{} = 10
 itemStorageLimit _ = 0
 
 -- bulkiness = can I carry more than one and can there be more than one of
