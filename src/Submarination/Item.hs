@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+
 module Submarination.Item
   ( Item(..)
   , Plural(..)
@@ -12,6 +14,7 @@ module Submarination.Item
   where
 
 import Control.Lens
+import Data.Binary
 import Data.Data
 import qualified Data.Map.Strict as M
 import Protolude
@@ -26,7 +29,7 @@ data Item
   | Microwave [Item]
   | Whiskey
   | StorageBox [Item]
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 data Plural
   = Many

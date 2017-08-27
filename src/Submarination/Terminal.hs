@@ -10,6 +10,7 @@ module Submarination.Terminal
   , paintTerminalM
   , Cell(..)
   , emptyTerminalState
+  , mutateTerminalState
   , mutateTerminalStateM
   , generateTerminalState
   , paintTerminal

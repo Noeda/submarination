@@ -1,3 +1,6 @@
+{-# LANGUAGE NoGeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveAnyClass #-}
+
 module Submarination.Level
   ( Level()
   , LevelCell(..)
@@ -9,13 +12,16 @@ module Submarination.Level
   , placeCreature
   , placeItem
   , creatures
+  , emptyLevel
   , levelFromStrings
   , levelFromStringsPlacements
   , walkLevelActiveMetadata
+  , rebase
   , isWalkable )
   where
 
 import Control.Lens hiding ( Level )
+import Data.Binary
 import Data.Char ( isDigit )
 import Data.Data
 import qualified Data.Map.Strict as M
@@ -33,11 +39,11 @@ data Level = Level
   , _levelActiveMetadata :: !(M.Map (V2 Int) LevelActiveMetadata)
   , _levelItems          :: !(M.Map (V2 Int) [Item])
   , _creatures           :: !(M.Map (V2 Int) Creature) }
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 newtype LevelActiveMetadata
   = HatchAutoClose Int
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 data LevelCell
   = Water
@@ -52,7 +58,9 @@ data LevelCell
   | Hatch
   | OpenHatch
   | InteriorFloor
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+  | HappyCoral
+  | Soil
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 makeLenses ''Level
 
 isWalkable :: LevelCell -> Bool
@@ -68,6 +76,8 @@ isWalkable InteriorFloor = True
 isWalkable Hatch = False
 isWalkable OpenHatch = True
 isWalkable Window = False
+isWalkable HappyCoral = True
+isWalkable Soil = True
 
 walkLevelActiveMetadata :: Applicative f => Level -> (V2 Int -> LevelCell -> LevelActiveMetadata -> f (LevelCell, Maybe LevelActiveMetadata)) -> f Level
 walkLevelActiveMetadata level action =
@@ -126,6 +136,14 @@ placeItem item location =
     Nothing -> Just [item]
     Just items -> Just (item:items)
 
+emptyLevel :: LevelCell -> Level
+emptyLevel default_cell = Level
+  { _defaultLevelCell = default_cell
+  , _levelCells = mempty
+  , _levelItems = mempty
+  , _creatures = mempty
+  , _levelActiveMetadata = mempty }
+
 levelFromStrings :: LevelCell -> [Text] -> Level
 levelFromStrings default_cell = levelFromStringsPlacements default_cell []
 
@@ -158,6 +176,7 @@ levelFromStringsPlacements default_cell settings strs =
     'h' -> Hatch
     '^' -> MountainRock
     'g' -> Grass
+    'C' -> HappyCoral
     _   -> Water
 
   toMapping = go 0 
@@ -175,4 +194,11 @@ levelFromStringsPlacements default_cell settings strs =
              if isDigit ch
                then Just (ord ch - ord '0', V2 x y)
                else Nothing)
+
+rebase :: V2 Int -> Level -> Level
+rebase offset level = level
+  { _levelCells          = M.mapKeys (\x -> x - offset) (_levelCells level)
+  , _levelActiveMetadata = M.mapKeys (\x -> x - offset) (_levelActiveMetadata level)
+  , _levelItems          = M.mapKeys (\x -> x - offset) (_levelItems level)
+  , _creatures           = M.mapKeys (\x -> x - offset) (_creatures level) }
 

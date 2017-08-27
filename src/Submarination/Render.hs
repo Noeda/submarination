@@ -6,7 +6,9 @@ module Submarination.Render
   , UpdateRequestStateKnob
   , newUpdateRequestKnob
   , showSplashScreen
-  , showGameState )
+  , showGameState
+  -- * Debugging
+  , renderLevelHuge )
   where
 
 import Control.Arrow ( (***) )
@@ -210,16 +212,41 @@ renderCurrentLevel monotonic_time_ns = do
 
 levelFeatureToAppearance :: LevelCell -> Double -> Int -> Int -> Cell
 levelFeatureToAppearance lcell monotonic_time x y = case lcell of
-  Water         -> Cell Vivid Blue Dull Black '≈'
   WoodenBoards  -> Cell Vivid Yellow Dull Black '.'
   Rock          -> Cell Vivid Black Vivid Black ' '
   MountainRock  -> Cell Vivid White Vivid Black '^'
   Grass         -> Cell Vivid Green Dull Black '.'
   Hull          -> Cell Dull Yellow Dull Black '█'
-  InteriorFloor -> Cell Dull Yellow Dull Black '.'
+  InteriorFloor -> Cell Dull Cyan Dull Black '.'
   Hatch         -> Cell Vivid Yellow Dull Black '+'
   OpenHatch     -> Cell Vivid Yellow Dull Black '-'
   Window        -> Cell Vivid Cyan Dull Black '◘'
+  Soil          -> Cell Dull Yellow Dull Black '.'
+  
+  cell | cell == Water ->
+    let theta = sin (dx*9338.3) + cos (sin (dy*3.3)*119) - sin (sin dx+cos dy*3331 + sin (sectime*0.1))
+
+     in if theta < 0.9
+          then Cell Vivid Blue Dull Black '≈'
+          else Cell Dull Blue Dull Black '≈'
+
+  cell | cell == HappyCoral ->
+    let theta = sin (dx*9238.3) + cos (sin (dy*3.3)*117) - sin (sin dx+cos dy*333) + sin (sectime*0.1)
+        ch = if sin (dx*37.728) + cos (sin (dy*2.71)*622) - sin (cos dx+sin (dy*1.3)*17) > 0.2
+               then '☼'
+               else '○'
+     in if | theta > 0.5
+             -> Cell Vivid White Dull Black ch
+           | theta > 0.2
+             -> Cell Vivid Blue Dull Black ch
+           | theta > -0.2
+             -> Cell Vivid Green Dull Black ch
+           | theta > -0.4
+             -> Cell Vivid Yellow Dull Black ch
+           | theta > -0.95
+             -> Cell Vivid White Dull Black ch
+           | otherwise
+             -> Cell Vivid Red Dull Black ch
 
   cell | cell == SurfaceWater || cell == SurfaceWaterSplashing ->
     let theta = sin $ sectime*0.1+dx*0.5+dy*0.25
@@ -660,4 +687,24 @@ renderAdditionalHud = do
 
   renderInventorySummary 53
   renderPossibleTriggerKeys
+
+-- | This is used for debugging level generation. It prints the level to the
+-- terminal as big as it can.
+renderLevelHuge :: MonadIO m => Level -> m ()
+renderLevelHuge lvl = liftIO $ withKeyboardTerminal $
+  race_ (void getInputChar) $ forever $ runTerminalStateT $ do
+    (w, h) <- getTerminalSize
+    monotonic_time_ns <- getMonotonicTime
+    let monotonic_time = fromIntegral (monotonic_time_ns `div` 1000000) :: Double
+
+    mutateTerminalStateM $ do
+      clear
+      for_ [0..w-1] $ \x ->
+        for_ [0..h-1] $ \y -> do
+          let cell       = lvl^.cellAt (V2 x y)
+              appearance = levelFeatureToAppearance cell monotonic_time x y
+
+          setCell' x y appearance
+
+    liftIO $ threadDelay 100000
 

@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+
 module Submarination.Creature
   ( Creature(..)
   , foodVendor
@@ -6,6 +8,7 @@ module Submarination.Creature
   , materialVendor )
   where
 
+import Data.Binary
 import Data.Data
 import Protolude
 
@@ -14,7 +17,7 @@ data Creature
   | AmmoVendor
   | ToolVendor
   | MaterialVendor
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 foodVendor :: Creature
 foodVendor = FoodVendor

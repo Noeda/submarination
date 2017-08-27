@@ -7,6 +7,7 @@ module Submarination.Terminal.Common
   , Cell(..)
   , emptyTerminalState
   , mutateTerminalStateMRaw
+  , mutateTerminalState
   , generateTerminalState
   , mutateTerminalSize
   , MutateTerminal()

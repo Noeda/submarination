@@ -107,6 +107,7 @@ import Linear.V2
 import qualified Prelude as E
 import Protolude hiding ( (&), to )
 
+import Submarination.Biome.IntertidalZone
 import Submarination.Creature
 import Submarination.GameState.Types
 import Submarination.Item
@@ -168,7 +169,9 @@ initialGameState = GameState
   , _vendorMenu      = Nothing
   , _turn = 1
   , _inputTurn = 1
-  , _levels = M.singleton 0 surfaceLevel
+  , _levels = M.fromList
+                [(0, surfaceLevel)
+                ,(50, rebase (V2 70 70) intertidalZone)]
   , _messages = M.empty
   , _sub = Sub { _subPosition = V2 23 (-2)
                , _subTopology = initial_sub_topo
@@ -266,7 +269,7 @@ gsAdvanceTurn gs = flip execState gs $ do
 
   curdepth <- use depth
   when (curdepth >= 50) $
-    dead .= True
+    sub.subDiving .= False
 
   walkActiveMetadata
  where
