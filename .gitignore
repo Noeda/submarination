@@ -5,4 +5,6 @@
 *.o
 web/upload.sh
 web/bundled.js
+_build/
+src/Submarination/Biome/IntertidalZoneGen.hs
 

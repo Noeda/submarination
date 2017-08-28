@@ -20,7 +20,6 @@ library
   exposed-modules:    Submarination
                       Submarination.Biome.Gen
                       Submarination.Biome.IntertidalZone
-                      Submarination.Biome.IntertidalZoneGen
                       Submarination.Creature
                       Submarination.Direction
                       Submarination.GameState
@@ -38,6 +37,7 @@ library
 
   if flag(use-baked-levels)
     cpp-options:       -DUSE_BAKED_LEVELS
+    exposed-modules:   Submarination.Biome.IntertidalZoneGen
 
   if impl(ghcjs)
     cpp-options:       -DGHCJS_BROWSER

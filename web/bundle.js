@@ -1,1 +1,0 @@
-../.stack-work/install/x86_64-linux/lts-7.19/ghcjs-0.2.1.9007019_ghc-8.0.1/bin/submarination.jsexe/all.js

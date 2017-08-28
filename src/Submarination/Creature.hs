@@ -17,6 +17,11 @@ data Creature
   | AmmoVendor
   | ToolVendor
   | MaterialVendor
+  | Snoatfish
+  | Biddy
+  | Enneapus
+  | Camobream
+  | Gator
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 foodVendor :: Creature

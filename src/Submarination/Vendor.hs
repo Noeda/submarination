@@ -17,6 +17,7 @@ vendorDescription ToolVendor =
   "Pag has tool. You buy tool? Pag sell tool. You wheel? You deal."
 vendorDescription MaterialVendor =
   "YOU THERE! Buy our wondrous materials. We may not have a great variety but you can be sure all our materials are very wondrous."
+vendorDescription _ = ""
 
 vendorItems :: Creature -> [Item]
 vendorItems FoodVendor =

@@ -5,7 +5,6 @@ module Submarination.Biome.Gen
 import Data.Binary
 import Data.Binary.Put
 import qualified Data.Text as T
-import qualified Prelude as P
 import Protolude hiding ( put )
 import System.IO
 

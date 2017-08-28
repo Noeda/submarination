@@ -165,12 +165,17 @@ renderGameState' monotonic_time_ns = do
 
 type GameMonadRoTerminal s = GameMonadRo (MutateTerminal s)
 
-creatureToAppearance :: Creature -> Cell
-creatureToAppearance creature = case creature of
+creatureToAppearance :: Creature -> Cell -> Cell
+creatureToAppearance creature (Cell fintensity fcolor bintensity bcolor _) = case creature of
   FoodVendor     -> Cell Vivid White Dull Yellow '@'
   AmmoVendor     -> Cell Vivid White Dull Yellow '@'
   MaterialVendor -> Cell Vivid White Dull Yellow '@'
   ToolVendor     -> Cell Vivid White Dull Yellow 'O'
+  Snoatfish      -> Cell Vivid Red   Dull Yellow 's'
+  Biddy          -> Cell Vivid Blue  Dull Yellow 'b'
+  Enneapus       -> Cell Dull Yellow Dull Black  'o'
+  Camobream      -> Cell fintensity fcolor bintensity bcolor 'c'
+  Gator          -> Cell Dull Green  Dull Black  'G'
 
 itemToAppearance :: Item -> Cell
 itemToAppearance SardineTin      = Cell Dull Cyan Dull Black '%'
@@ -202,7 +207,8 @@ renderCreatures = do
       -- position in terminal
       let (tx, ty) = ((+) rx *** (+) ry) mapMiddleOnTerminal
 
-      setCell' tx ty (creatureToAppearance creature)
+      old_cell <- getCell' tx ty
+      setCell' tx ty (creatureToAppearance creature old_cell)
 
 renderCurrentLevel :: Integer -> GameMonadRoTerminal s ()
 renderCurrentLevel monotonic_time_ns = do

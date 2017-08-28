@@ -15,3 +15,7 @@ If you want to poke around with the browser version, invoke `stack` with
 `--stack-yaml stack-browser.yaml` and then navigate to `web/` directory. You
 may have to relink `bundle.js` to point to `all.js` in stack build files.
 
+There is also a Shake file in `Build.hs` at the root of this repository. You'll
+need it to build so-called baked levels that are included and compiled within
+source code. It speeds up loading considerably but isn't essential otherwise.
+
