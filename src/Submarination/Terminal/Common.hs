@@ -14,6 +14,7 @@ module Submarination.Terminal.Common
   , clear
   , setCell
   , setCell'
+  , getCell'
   , textWidth
   , setText
   , setWrappedText
@@ -98,6 +99,14 @@ setCell' x y cell = MutateTerminal $ do
   when (x < w && y < h && x >= 0 && y >= 0) $ lift $
     AM.writeArray (cellsMut mut) (x, y) cell
 {-# INLINE setCell' #-}
+
+getCell' :: Int -> Int -> MutateTerminal s Cell
+getCell' x y = MutateTerminal $ do
+  (mut, w, h) <- ask
+  if x < w && y < h && x >= 0 && y >= 0
+    then lift $ AM.readArray (cellsMut mut) (x, y)
+    else return $ Cell Dull White Dull Black ' '
+{-# INLINE getCell' #-}
 
 mutateTerminalSize :: MutateTerminal s (Int, Int)
 mutateTerminalSize = MutateTerminal $ do

@@ -20,6 +20,7 @@ module Submarination.Terminal
   , clear
   , setCell
   , setCell'
+  , getCell'
   , textWidth
   , setText
   , setWrappedText

@@ -19,6 +19,7 @@ module Submarination.GameState
   , gsTurn
   , gmMoveToDirection
   , gsIsDead
+  , gsDeathReason
   -- * Messages
   , gsAddMessage
   , gsCurrentMessage
@@ -98,7 +99,6 @@ module Submarination.GameState
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Control.Lens hiding ( Level, levels )
-import Data.Data
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.List ( (!!), delete )
@@ -135,6 +135,7 @@ initialGameState = GameState
   , _activeMenuInventory = []
   , _activeMenuCounter = Nothing
   , _dead            = False
+  , _deathReason     = "Spontaneous death"
   , _vendorMenu      = Nothing
   , _turn = 1
   , _inputTurn = 1
@@ -227,6 +228,13 @@ geStartDiving gs = do
   guardE (gsPlayerIsInsideSub gs) "You are not inside submarine."
   return $ gs & sub.subDiving .~ True
 
+gsDeathCheck :: Text -> GameState -> GameState
+gsDeathCheck death_reason gs =
+  if gs^.player.playerHealth <= 0
+    then gs & (dead .~ True) .
+              (deathReason .~ death_reason)
+    else gs
+
 gsAdvanceTurn :: GameState -> GameState
 gsAdvanceTurn gs | gs^.dead = gs
 gsAdvanceTurn gs = flip execState gs $ do
@@ -239,6 +247,22 @@ gsAdvanceTurn gs = flip execState gs $ do
   curdepth <- use depth
   when (curdepth >= 50) $
     sub.subDiving .= False
+
+  -- Oxygen runs out if you are not on surface and outside submarine
+  ((,) <$> use (to gsIsOnSurface) <*> use (to gsPlayerIsInsideSub)) >>= \case
+    (False, False) -> player.playerOxygen -= 1
+    _ -> do
+      player.playerOxygen %= max (-1)
+      player.playerOxygen += 1
+
+  -- Clamp oxygen
+  gs <- get
+  player.playerOxygen %= max (-50) . min (gsMaximumOxygenLevel gs)
+
+  oxygen <- use $ player.playerOxygen
+  when (oxygen <= 0) $ do
+    player.playerHealth -= 1
+    modify $ gsDeathCheck "Asphyxia"
 
   walkActiveMetadata
  where
@@ -871,4 +895,7 @@ gmCurrentlySelectedCount = (^.activeMenuCounter)
 
 gsIsDead :: GameState -> Bool
 gsIsDead = _dead
+
+gsDeathReason :: GameState -> Text
+gsDeathReason = (^.deathReason)
 

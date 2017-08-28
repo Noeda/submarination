@@ -277,6 +277,7 @@ renderSub monotonic_time_ns = do
   V2 px py <- view $ glPlayer.playerPosition
 
   topo <- gr (^.glSub.subTopology)
+  oxygen <- gr (^.glPlayer.playerOxygen)
 
   lift $ for_ [V2 x y | x <- [px-losDistance..px+losDistance], y <- [py-losDistance..py+losDistance]] $ \(V2 lx ly) -> do
     let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) mapMiddleOnTerminal
@@ -290,6 +291,10 @@ renderSub monotonic_time_ns = do
 
           for_ (subItems topo subcoords) $ \items ->
             renderItemPile render_at items
+
+          when (oxygen < 0) $ do
+            Cell _ _ _ _ ch <- uncurry getCell' terminalcoord
+            render_at (Cell Dull Red Dull Black ch)
  where
   monotonic_time = fromIntegral (monotonic_time_ns `div` 1000000) :: Double
 
@@ -301,7 +306,8 @@ renderItemPile action (first_item:_rest) =
   action $ reverseAppearance $ itemToAppearance first_item
 
 renderLevel :: Integer -> Level -> V2 Int -> GameMonadRoTerminal s ()
-renderLevel monotonic_time_ns level (V2 ox oy) =
+renderLevel monotonic_time_ns level (V2 ox oy) = do
+  oxygen <- gr (^.glPlayer.playerOxygen)
   lift $ for_ [V2 x y | x <- [ox-losDistance..ox+losDistance], y <- [oy-losDistance..oy+losDistance]] $ \levelcoord@(V2 lx ly) -> do
     let terminalcoord = ((+) (lx - ox) *** (+) (ly - oy)) mapMiddleOnTerminal
     -- What is the cell we should render?
@@ -314,6 +320,10 @@ renderLevel monotonic_time_ns level (V2 ox oy) =
 
     render_at $ levelFeatureToAppearance level_feature monotonic_time lx ly
     renderItemPile render_at (level^.itemsAt levelcoord)
+
+    when (oxygen < 0) $ do
+      Cell _ _ _ _ ch <- uncurry getCell' terminalcoord
+      render_at (Cell Dull Red Dull Black ch)
  where
   monotonic_time = fromIntegral (monotonic_time_ns `div` 1000000) :: Double
 
@@ -330,18 +340,21 @@ blocksText len =
   partialText len | len > 0.75 = "█"
   partialText _ = "▌"
 
-renderBar :: Text -> Int -> Int -> Int -> Int -> ColorIntensity -> Color -> ColorIntensity -> Color -> GameMonadRoTerminal s ()
-renderBar label value max_value x y bar_intensity bar_color unbar_intensity unbar_color = do
+renderBar :: Text -> Int -> Int -> Int -> Int -> ColorIntensity -> Color -> ColorIntensity -> Color -> Integer -> Text -> GameMonadRoTerminal s ()
+renderBar label value max_value x y bar_intensity bar_color unbar_intensity unbar_color monotonic_time_ns extratext = do
   let portion = fromIntegral value / fromIntegral max_value :: Double
-      bar_len = 13 :: Int
+      bar_len = 10 :: Int
       bar_txt_head = blocksText $ fromIntegral bar_len * portion
       bar_txt_tail = T.replicate (bar_len - T.length bar_txt_head) " "
 
   lift $ do
     setText (x+12) y Vivid White Dull Black "├"
-    setText (x+26) y Vivid White Dull Black "┤"
+    setText (x+23) y Vivid White Dull Black "┤"
     setText (x+13) y bar_intensity bar_color unbar_intensity unbar_color (bar_txt_head <> bar_txt_tail)
     setText x y Vivid White Dull Black $ label <> show value <> "/" <> show max_value
+
+    when ((monotonic_time_ns `div` 1000000000) `mod` 2 == 0) $
+      setText (x+25) y Vivid Yellow Vivid Red extratext
 
 data ActiveSide
   = LeftSide
@@ -399,7 +412,7 @@ appendWrappedText x skip max_width fintensity fcolor bintensity bcolor txt = do
   putSideY (y+height+skip)
 
 renderHud :: Integer -> GameMonadRoTerminal s ()
-renderHud _monotonic_time_ns = do
+renderHud monotonic_time_ns = do
 
   -- The name of the section of submarine you are in
   player_pos <- gr (^.glPlayer.playerPosition)
@@ -419,14 +432,20 @@ renderHud _monotonic_time_ns = do
       lift $ setText (40-(title_w `div` 2)) 0 Vivid White Dull Black title
 
   -- Health/Oxygen
-  hp     <- gr (^.glPlayer.playerHealth)
+  hp'    <- gr (^.glPlayer.playerHealth)
   max_hp <- gr (^.glPlayer.playerMaximumHealth)
 
-  oxygen     <- gr (^.glPlayer.playerOxygen)
-  max_oxygen <- gr gsMaximumOxygenLevel
+  oxygen'     <- gr (^.glPlayer.playerOxygen)
+  max_oxygen  <- gr gsMaximumOxygenLevel
 
-  renderBar "HP: " hp max_hp 53 2 Vivid Red Dull Blue
-  renderBar "O₂: " oxygen max_oxygen 53 4 Vivid Cyan Dull Blue
+  let oxygen = max 0 $ min max_oxygen oxygen'
+      hp = max 0 $ min max_hp hp'
+
+  renderBar "HP: " hp max_hp 53 2 Vivid Red Dull Blue monotonic_time_ns ""
+
+  if oxygen >= 15
+    then renderBar "O₂: " oxygen max_oxygen 53 4 Vivid Cyan Dull Blue monotonic_time_ns ""
+    else renderBar "O₂: " oxygen max_oxygen 53 4 Vivid Cyan Dull Blue monotonic_time_ns "!"
 
   renderTurn
 
@@ -639,9 +658,10 @@ renderInventorySummary x = do
 renderDeadScreen :: GameMonadRoTerminal s ()
 renderDeadScreen = do
   turn <- gr gsTurn
+  death_reason <- gr gsDeathReason
   lift $ do
-    void $ setWrappedText 2 2 60 Dull White Dull Black "Suddenly, the submarine explodes."
-    void $ setWrappedText 2 4 60 Dull White Dull Black "You are DEAD, R.I.P."
+    void $ setWrappedText 2 2 60 Dull White Dull Black "You are DEAD, R.I.P."
+    void $ setWrappedText 2 4 60 Dull White Dull Black $ "Cause of death: " <> death_reason
     void $ setWrappedText 2 6 60 Dull White Dull Black $ "You survived for " <> show turn <> " turns."
 
 renderAdditionalHud :: VerticalBoxRender (GameMonadRoTerminal s) ()

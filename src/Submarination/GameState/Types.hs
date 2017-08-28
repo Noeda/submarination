@@ -8,6 +8,7 @@ module Submarination.GameState.Types
   , vendorMenu
   , depth
   , dead
+  , deathReason
   , turn
   , inputTurn
   , levels
@@ -77,6 +78,7 @@ data GameState = GameState
   , _activeMenuCounter   :: Maybe Int
   , _vendorMenu          :: Maybe Int
   , _dead                :: Bool
+  , _deathReason         :: Text
   , _depth               :: Int
   , _turn                :: Int
   , _inputTurn           :: Int
