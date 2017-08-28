@@ -212,23 +212,25 @@ renderCurrentLevel monotonic_time_ns = do
 
 levelFeatureToAppearance :: LevelCell -> Double -> Int -> Int -> Cell
 levelFeatureToAppearance lcell monotonic_time x y = case lcell of
-  WoodenBoards  -> Cell Vivid Yellow Dull Black '.'
-  Rock          -> Cell Vivid Black Vivid Black ' '
-  MountainRock  -> Cell Vivid White Vivid Black '^'
-  Grass         -> Cell Vivid Green Dull Black '.'
-  Hull          -> Cell Dull Yellow Dull Black '█'
-  InteriorFloor -> Cell Dull Cyan Dull Black '.'
-  Hatch         -> Cell Vivid Yellow Dull Black '+'
-  OpenHatch     -> Cell Vivid Yellow Dull Black '-'
-  Window        -> Cell Vivid Cyan Dull Black '◘'
-  Soil          -> Cell Dull Yellow Dull Black '.'
+  WoodenBoards      -> Cell Vivid Yellow Dull Black '.'
+  Rock              -> Cell Vivid Black Dull White ' '
+  MountainRock      -> Cell Vivid White Dull White '^'
+  DeepRock          -> Cell Vivid Black Vivid Black ' '
+  DeepMountainRock  -> Cell Vivid White Vivid Black '^'
+  Grass             -> Cell Vivid Green Dull Black '.'
+  Hull              -> Cell Dull Yellow Dull Black '█'
+  InteriorFloor     -> Cell Dull Cyan Dull Black '.'
+  Hatch             -> Cell Vivid Yellow Dull Black '+'
+  OpenHatch         -> Cell Vivid Yellow Dull Black '-'
+  Window            -> Cell Vivid Cyan Dull Black '◘'
+  Soil              -> Cell Dull Yellow Dull Black '.'
   
   cell | cell == Water ->
-    let theta = sin (dx*9338.3) + cos (sin (dy*3.3)*119) - sin (sin dx+cos dy*3331 + sin (sectime*0.1))
+    let theta = sin (dx*9338.3) + cos (sin (dy*3.3)*119) - sin (sin dx+cos dy*3331 + sin sectime)
 
      in if theta < 0.9
-          then Cell Vivid Blue Dull Black '≈'
-          else Cell Dull Blue Dull Black '≈'
+          then Cell Vivid Blue Dull Black '.'
+          else Cell Dull Blue Dull Black '.'
 
   cell | cell == HappyCoral ->
     let theta = sin (dx*9238.3) + cos (sin (dy*3.3)*117) - sin (sin dx+cos dy*333) + sin (sectime*0.1)

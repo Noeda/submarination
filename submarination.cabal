@@ -9,12 +9,20 @@ category:            Game
 build-type:          Simple
 cabal-version:       >=1.10
 
+flag use-baked-levels
+  default: False
+  description:
+    Level generation can take a long time. To avoid unacceptable
+    time starting the game, the game can be compiled with pregenerated levels. By
+    default this is turned off for development.
+
 library
   exposed-modules:    Submarination
                       Submarination.Biome.Gen
                       Submarination.Biome.IntertidalZone
                       Submarination.Biome.IntertidalZoneGen
                       Submarination.Creature
+                      Submarination.Direction
                       Submarination.GameState
                       Submarination.GameState.Types
                       Submarination.Item
@@ -27,6 +35,9 @@ library
                       Submarination.Voronoi
                       Submarination.Terminal
                       Submarination.Terminal.Common
+
+  if flag(use-baked-levels)
+    cpp-options:       -DUSE_BAKED_LEVELS
 
   if impl(ghcjs)
     cpp-options:       -DGHCJS_BROWSER

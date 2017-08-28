@@ -51,7 +51,9 @@ data LevelCell
   | SurfaceWaterSplashing
   | WoodenBoards
   | Rock
+  | DeepRock
   | MountainRock
+  | DeepMountainRock
   | Grass
   | Hull
   | Window
@@ -78,6 +80,8 @@ isWalkable OpenHatch = True
 isWalkable Window = False
 isWalkable HappyCoral = True
 isWalkable Soil = True
+isWalkable DeepRock = False
+isWalkable DeepMountainRock = False
 
 walkLevelActiveMetadata :: Applicative f => Level -> (V2 Int -> LevelCell -> LevelActiveMetadata -> f (LevelCell, Maybe LevelActiveMetadata)) -> f Level
 walkLevelActiveMetadata level action =

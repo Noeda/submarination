@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Submarination.Biome.IntertidalZone
   ( intertidalZone
   , intertidalZoneGen )
@@ -16,13 +18,34 @@ import Data.Maybe
 import Linear.V2
 import Protolude
 
+#ifdef USE_BAKED_LEVELS
 import Submarination.Biome.IntertidalZoneGen
+#endif
+import Submarination.Direction
 import Submarination.Level
 import Submarination.Random
 import Submarination.Voronoi
 
 intertidalZone :: Level
+#ifdef USE_BAKED_LEVELS
 intertidalZone = biome
+#else
+intertidalZone = intertidalZoneGen
+#endif
+{-# NOINLINE intertidalZone #-}
+
+darkenRocks :: Level -> Level
+darkenRocks lvl = flip execState lvl $
+  for_ [0..80*3] $ \x -> for_ [0..80*3] $ \y -> do
+    let old_cell = lvl^.cellAt (V2 x y)
+    when (old_cell == Rock || old_cell == MountainRock) $
+      when (all (\pos -> let c = lvl^.cellAt pos
+                          in c == Rock || c == MountainRock)
+                (allNeighbours (V2 x y))) $
+        cellAt (V2 x y) %= \case
+          Rock -> DeepRock
+          MountainRock -> DeepMountainRock
+          something_else -> something_else
 
 intertidalZoneGen :: Level
 intertidalZoneGen = runST $
@@ -51,7 +74,7 @@ intertidalZoneGen = runST $
     regularGrid (V2 3 3) 80 80 Water
 
   layout :: RandomSupplyT (StateT Level (ST s)) ()
-  layout =
+  layout = do
     for_ [0..80*3 :: Int] $ \x ->
       for_ [0..80*3 :: Int] $ \y -> do
         let p = pointAt (V2 (fromIntegral x) (fromIntegral y)) voronoi
@@ -60,5 +83,6 @@ intertidalZoneGen = runST $
           then do toss <- randomInt (0, 4)
                   lift $ cellAt pos .= (if toss < 4 then Rock else MountainRock)
           else lift $ cellAt pos .= p
+    lift $ modify darkenRocks
 
 

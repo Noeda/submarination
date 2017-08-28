@@ -25,7 +25,7 @@ toHaskellSourceFile fpath name lvl = liftIO $
     hFlush handle
 
     let b = runPut $ put lvl
-    hPutStrLn handle $ P.show b
+    hPrint handle b
     hPutStrLn handle "{-# NOINLINE biome #-}"
 
 
