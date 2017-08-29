@@ -39,14 +39,19 @@ main = shakeArgs shakeOptions{shakeFiles="_build", shakeThreads=2} $ do
   phony "deploy" $ do
     bucket <- fromMaybe (error "SUBMARINATION_BUCKET must be defined (env)") <$> getEnv "SUBMARINATION_BUCKET"
     prefix <- fromMaybe (error "SUBMARINATION_PREFIX must be defined (env)") <$> getEnv "SUBMARINATION_PREFIX"
-    need ["web/index.html", "web/DejaVuSansMono.ttf", "web/style.css", "_build/submarination.min.js"]
+    need ["web/index.html", "web/DejaVuSansMono.ttf", "web/style.css", "_build/submarination.min.js.gz"]
 
     let copy file tgt = cmd "aws" "s3" "cp" file ("s3://" <> bucket </> prefix </> tgt) :: Action ()
 
     copy "web/index.html" "index.html"
     copy "web/DejaVuSansMono.ttf" "DejaVuSansMono.ttf"
     copy "web/style.css" "style.css"
-    copy "_build/submarination.min.js" "bundle.js"
+
+    cmd "s3cmd" "put" "--add-header" "Content-Type:application/json" "--add-header" "Content-Encoding:gzip" "_build/submarination.min.js.gz" ("s3://" <> bucket </> prefix </> "bundle.js")
+
+  "_build/*.gz" %> \out -> do
+    need [dropExtension out]
+    cmd "gzip" "-k" (dropExtension out)
 
   "src/Submarination/Biome/IntertidalZoneGen.hs" %> \out -> do
     need ["src/Submarination/Biome/IntertidalZone.hs"]
