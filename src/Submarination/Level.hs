@@ -12,6 +12,7 @@ module Submarination.Level
   , placeCreature
   , placeItem
   , creatures
+  , creatureAt
   , emptyLevel
   , levelFromStrings
   , levelFromStringsPlacements
@@ -62,6 +63,8 @@ data LevelCell
   | InteriorFloor
   | HappyCoral
   | Soil
+  | Blood
+  | BloodCoagulated
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 makeLenses ''Level
 
@@ -82,6 +85,8 @@ isWalkable HappyCoral = True
 isWalkable Soil = True
 isWalkable DeepRock = False
 isWalkable DeepMountainRock = False
+isWalkable Blood = True
+isWalkable BloodCoagulated = True
 
 walkLevelActiveMetadata :: Applicative f => Level -> (V2 Int -> LevelCell -> LevelActiveMetadata -> f (LevelCell, Maybe LevelActiveMetadata)) -> f Level
 walkLevelActiveMetadata level action =
@@ -205,4 +210,11 @@ rebase offset level = level
   , _levelActiveMetadata = M.mapKeys (\x -> x - offset) (_levelActiveMetadata level)
   , _levelItems          = M.mapKeys (\x -> x - offset) (_levelItems level)
   , _creatures           = M.mapKeys (\x -> x - offset) (_creatures level) }
+
+creatureAt :: V2 Int -> Lens' Level (Maybe Creature)
+creatureAt pos = lens get_it set_it
+ where
+  get_it lvl = M.lookup pos (lvl^.creatures)
+  set_it lvl Nothing = lvl & creatures %~ M.delete pos
+  set_it lvl (Just creature) = lvl & creatures %~ M.insert pos creature
 

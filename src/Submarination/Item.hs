@@ -29,6 +29,12 @@ data Item
   | Microwave [Item]
   | Whiskey
   | StorageBox [Item]
+  | WoundedCorpse
+  | MutilatedCorpse
+  | BloatedCorpse
+  | PartiallyEatenCorpse
+  | SkeletonCorpse
+  | PlantPersonCorpse
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 data Plural
@@ -44,24 +50,36 @@ groupItems = foldr folder M.empty
     Just v  -> v+1
 
 itemName :: Item -> Plural -> Text
-itemName SardineTin     Singular     = "a tin of sardines"
-itemName SardineTin     Many         = "tins of sardines"
-itemName Poylent        Singular     = "a bottle of poylent"
-itemName Poylent        Many         = "bottles of poylent"
-itemName Chicken        Singular     = "a chicken"
-itemName Chicken        Many         = "chickens"
-itemName Potato         Singular     = "a potato"
-itemName Potato         Many         = "potatoes"
-itemName Freezer{}      Singular     = "a freezer"
-itemName Freezer{}      Many         = "freezers"
-itemName Refrigerator{} Singular     = "a refrigerator"
-itemName Refrigerator{} Many         = "refrigerators"
-itemName Microwave{}    Singular     = "a microwave"
-itemName Microwave{}    Many         = "microwaves"
-itemName Whiskey        Singular     = "a bottle of whiskey"
-itemName Whiskey        Many         = "bottles of whiskey"
-itemName StorageBox{}   Singular     = "a storage box"
-itemName StorageBox{}   Many         = "storage boxes"
+itemName SardineTin      Singular      = "a tin of sardines"
+itemName SardineTin      Many          = "tins of sardines"
+itemName Poylent         Singular      = "a bottle of poylent"
+itemName Poylent         Many          = "bottles of poylent"
+itemName Chicken         Singular      = "a chicken"
+itemName Chicken         Many          = "chickens"
+itemName Potato          Singular      = "a potato"
+itemName Potato          Many          = "potatoes"
+itemName Freezer{}       Singular      = "a freezer"
+itemName Freezer{}       Many          = "freezers"
+itemName Refrigerator{}  Singular      = "a refrigerator"
+itemName Refrigerator{}  Many          = "refrigerators"
+itemName Microwave{}     Singular      = "a microwave"
+itemName Microwave{}     Many          = "microwaves"
+itemName Whiskey         Singular      = "a bottle of whiskey"
+itemName Whiskey         Many          = "bottles of whiskey"
+itemName StorageBox{}    Singular      = "a storage box"
+itemName StorageBox{}    Many          = "storage boxes"
+itemName WoundedCorpse   Singular      = "a diver's wounded corpse"
+itemName WoundedCorpse   Many          = "divers' wounded corpses"
+itemName MutilatedCorpse Singular      = "a diver's mutilated corpse"
+itemName MutilatedCorpse Many          = "divers' mutilated corpses"
+itemName BloatedCorpse   Singular      = "a bloated corpse"
+itemName BloatedCorpse   Many          = "bloated corpses"
+itemName PartiallyEatenCorpse Singular = "a partially eaten corpse"
+itemName PartiallyEatenCorpse Many     = "partially eaten corpses"
+itemName SkeletonCorpse Singular       = "skeletal remains"
+itemName SkeletonCorpse Many           = "skeletal remains"
+itemName PlantPersonCorpse Singular    = "plantperson corpse"
+itemName PlantPersonCorpse Many        = "plantperson corpses"
 
 itemDescription :: Item -> Text
 itemDescription SardineTin =
@@ -89,6 +107,14 @@ itemDescription (StorageBox inner_items) =
                then " This box contains " <> show (length inner_items) <> " items."
                else " This box contains 1 item."
 
+-- TODO: write...uh..."fun" descriptions for all the corpses
+itemDescription WoundedCorpse = "A bloodied wounded corpse."
+itemDescription MutilatedCorpse = "A mutilated corpse."
+itemDescription BloatedCorpse = "A bloated corpse."
+itemDescription PartiallyEatenCorpse = "This corpse has been partially consumed by local fauna."
+itemDescription SkeletonCorpse = "The skeletal remains of an unfortunate diver."
+itemDescription PlantPersonCorpse = "The tattered remains of a plantperson."
+
 itemPrice :: Item -> Int
 itemPrice SardineTin   = 10
 itemPrice Poylent      = 100
@@ -99,6 +125,12 @@ itemPrice (StorageBox inner_items)   = 300 + sum (itemPrice <$> inner_items)
 itemPrice (Freezer inner_items)      = 200 + sum (itemPrice <$> inner_items)
 itemPrice (Refrigerator inner_items) = 150 + sum (itemPrice <$> inner_items)
 itemPrice (Microwave inner_items)    = 150 + sum (itemPrice <$> inner_items)
+itemPrice WoundedCorpse = 0
+itemPrice MutilatedCorpse = 0
+itemPrice BloatedCorpse = 0
+itemPrice PartiallyEatenCorpse = 0
+itemPrice SkeletonCorpse = 0
+itemPrice PlantPersonCorpse = 0
 
 itemStorageLimit :: Item -> Int
 itemStorageLimit StorageBox{}   = 20
@@ -114,6 +146,12 @@ isItemBulky StorageBox{} = True
 isItemBulky Freezer{} = True
 isItemBulky Refrigerator{} = True
 isItemBulky Microwave{} = True
+isItemBulky WoundedCorpse{} = True
+isItemBulky MutilatedCorpse{} = True
+isItemBulky BloatedCorpse{} = True
+isItemBulky PartiallyEatenCorpse{} = True
+isItemBulky SkeletonCorpse{} = True
+isItemBulky PlantPersonCorpse{} = True
 isItemBulky _ = False
 
 itemContents :: Traversal' Item [Item]

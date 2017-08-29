@@ -13,15 +13,19 @@ module Submarination.Biome.IntertidalZone
 -- 5) Rocks
 --
 
+import Control.Monad.Primitive
 import Control.Lens hiding ( Level, elements )
 import Data.Maybe
+import qualified Data.Vector as V
 import Linear.V2
 import Protolude
 
 #ifdef USE_BAKED_LEVELS
 import Submarination.Biome.IntertidalZoneGen
 #endif
+import Submarination.Creature
 import Submarination.Direction
+import Submarination.Item
 import Submarination.Level
 import Submarination.Random
 import Submarination.Voronoi
@@ -46,6 +50,74 @@ darkenRocks lvl = flip execState lvl $
           Rock -> DeepRock
           MountainRock -> DeepMountainRock
           something_else -> something_else
+
+isAcceptableCreatureLocation :: V2 Int -> Level -> Bool
+isAcceptableCreatureLocation (V2 x y) lvl =
+  not (x < 20 && y < 20 && x > -20 && y > -20) &&
+  isWalkable (lvl^.cellAt (V2 x y)) &&
+  isNothing (lvl^.creatureAt (V2 x y))
+
+placeCreatures :: PrimMonad m => Level -> RandomSupplyT m Level
+placeCreatures = execStateT $ do
+  placeCorpseParty
+  placeGators
+  placeSnoatfish
+  placeBiddy
+  placeEnneapus
+  placeCamobream
+ where
+  randomAcceptableCreatureLocation action = do
+    pos <- randomV2In (V2 0 0, V2 240 240)
+    lvl <- get
+    if isAcceptableCreatureLocation pos lvl
+      then action pos
+      else randomAcceptableCreatureLocation action
+
+  placeGators = replicateM_ 100 $
+    randomAcceptableCreatureLocation $ \pos -> do
+      creatureAt pos .= Just Gator
+
+  placeSnoatfish = replicateM_ 400 $
+    randomAcceptableCreatureLocation $ \pos -> do
+      creatureAt pos .= Just Snoatfish
+
+  placeBiddy = replicateM_ 200 $
+    randomAcceptableCreatureLocation $ \pos -> do
+      creatureAt pos .= Just Biddy
+
+  placeEnneapus = replicateM_ 30 $
+    randomAcceptableCreatureLocation $ \pos -> do
+      creatureAt pos .= Just Enneapus
+
+  placeCamobream = replicateM_ 60 $
+    randomAcceptableCreatureLocation $ \pos -> do
+      creatureAt pos .= Just Camobream
+
+  placeCorpseParty = randomAcceptableCreatureLocation $ actuallyPlaceCorpseParty (30 :: Int)
+
+  actuallyPlaceCorpseParty 0 _ = return ()
+  actuallyPlaceCorpseParty n coords = do
+    lvl <- get
+    when (null (lvl^.itemsAt coords) && isWalkable (lvl^.cellAt coords)) $ do
+      corpse <- randomOf $ V.fromList [WoundedCorpse, WoundedCorpse, WoundedCorpse, MutilatedCorpse, MutilatedCorpse, BloatedCorpse, PartiallyEatenCorpse, SkeletonCorpse, PlantPersonCorpse]
+      itemsAt coords .= [corpse]
+      get >>= lift . placeBloodSpatter coords >>= put
+
+    ncoords <- fmap round <$> randomV2Spherical 8
+    actuallyPlaceCorpseParty (n-1) (coords + ncoords)
+
+placeBloodSpatter :: PrimMonad m => V2 Int -> Level -> RandomSupplyT m Level
+placeBloodSpatter loc = execStateT $ go loc (5 :: Int)
+ where
+  go _ 0 = return ()
+  go loc n = do
+    bloody <- lift $ randomOf (V.fromList [Blood, Blood, BloodCoagulated])
+    old_loc <- use (cellAt loc)
+    when (isWalkable old_loc) $
+      cellAt loc .= bloody
+
+    nloc <- fmap round <$> randomV2Spherical 4
+    go (loc+nloc) (n-1)
 
 intertidalZoneGen :: Level
 intertidalZoneGen = runST $
@@ -84,5 +156,6 @@ intertidalZoneGen = runST $
                   lift $ cellAt pos .= (if toss < 4 then Rock else MountainRock)
           else lift $ cellAt pos .= p
     lift $ modify darkenRocks
+    lift get >>= placeCreatures >>= lift . put
 
 

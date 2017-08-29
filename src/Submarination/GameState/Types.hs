@@ -12,6 +12,7 @@ module Submarination.GameState.Types
   , turn
   , inputTurn
   , levels
+  , godMode
   , Sub(..)
   , subTopology
   , subPosition
@@ -82,6 +83,7 @@ data GameState = GameState
   , _depth               :: Int
   , _turn                :: Int
   , _inputTurn           :: Int
+  , _godMode             :: Bool
   , _levels              :: M.Map Int Level
   , _messages            :: M.Map Int Text }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )

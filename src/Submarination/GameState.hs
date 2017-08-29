@@ -139,6 +139,7 @@ initialGameState = GameState
   , _vendorMenu      = Nothing
   , _turn = 1
   , _inputTurn = 1
+  , _godMode = True
   , _levels = M.fromList
                 [(0, surfaceLevel)
                 ,(50, rebase (V2 70 70) intertidalZone)]
@@ -240,6 +241,8 @@ gsAdvanceTurn gs | gs^.dead = gs
 gsAdvanceTurn gs = flip execState gs $ do
   turn += 1
 
+  godModeCheck
+
   -- Make submarine go deeper if it's diving
   is_diving <- use $ sub.subDiving
   when is_diving $ depth += 1
@@ -265,7 +268,15 @@ gsAdvanceTurn gs = flip execState gs $ do
     modify $ gsDeathCheck "Asphyxia"
 
   walkActiveMetadata
+  godModeCheck
  where
+  godModeCheck = do
+    god_mode <- use godMode
+    when god_mode $ do
+      gs <- get
+      player.playerHealth .= (gs^.player.playerMaximumHealth)
+      player.playerOxygen .= (gs^.to gsMaximumOxygenLevel)
+
   walkActiveMetadata = do
     walkCurrentLevelMetadata
     walkSubLevelMetadata

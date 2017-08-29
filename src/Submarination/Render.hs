@@ -171,23 +171,29 @@ creatureToAppearance creature (Cell fintensity fcolor bintensity bcolor _) = cas
   AmmoVendor     -> Cell Vivid White Dull Yellow '@'
   MaterialVendor -> Cell Vivid White Dull Yellow '@'
   ToolVendor     -> Cell Vivid White Dull Yellow 'O'
-  Snoatfish      -> Cell Vivid Red   Dull Yellow 's'
-  Biddy          -> Cell Vivid Blue  Dull Yellow 'b'
+  Snoatfish      -> Cell Vivid Red   Dull Black 's'
+  Biddy          -> Cell Vivid Blue  Dull Black 'b'
   Enneapus       -> Cell Dull Yellow Dull Black  'o'
   Camobream      -> Cell fintensity fcolor bintensity bcolor 'c'
   Gator          -> Cell Dull Green  Dull Black  'G'
 
 itemToAppearance :: Item -> Cell
-itemToAppearance SardineTin      = Cell Dull Cyan Dull Black '%'
-itemToAppearance Poylent         = Cell Vivid Cyan Dull Black '%'
-itemToAppearance Chicken         = Cell Vivid Red Dull Black '%'
-itemToAppearance Potato          = Cell Vivid Yellow Dull Black '%'
-itemToAppearance Whiskey         = Cell Dull Yellow Dull Black '!'
-itemToAppearance Freezer{}       = Cell Vivid Cyan Dull Black '■'
-itemToAppearance Refrigerator{}  = Cell Dull Cyan Dull Black '■'
-itemToAppearance Microwave{}     = Cell Vivid White Dull Black '■'
-itemToAppearance (StorageBox []) = Cell Dull White Dull Black '±'
-itemToAppearance StorageBox{}    = Cell Dull White Dull Black '≡'
+itemToAppearance SardineTin           = Cell Dull Cyan Dull Black '%'
+itemToAppearance Poylent              = Cell Vivid Cyan Dull Black '%'
+itemToAppearance Chicken              = Cell Vivid Red Dull Black '%'
+itemToAppearance Potato               = Cell Vivid Yellow Dull Black '%'
+itemToAppearance Whiskey              = Cell Dull Yellow Dull Black '!'
+itemToAppearance Freezer{}            = Cell Vivid Cyan Dull Black '■'
+itemToAppearance Refrigerator{}       = Cell Dull Cyan Dull Black '■'
+itemToAppearance Microwave{}          = Cell Vivid White Dull Black '■'
+itemToAppearance (StorageBox [])      = Cell Dull White Dull Black '±'
+itemToAppearance StorageBox{}         = Cell Dull White Dull Black '≡'
+itemToAppearance WoundedCorpse        = Cell Vivid White Dull Red '@'
+itemToAppearance MutilatedCorpse      = Cell Vivid White Dull Red '@'
+itemToAppearance BloatedCorpse        = Cell Vivid Green Dull Red '@'
+itemToAppearance PartiallyEatenCorpse = Cell Vivid Green Dull Red '%'
+itemToAppearance SkeletonCorpse       = Cell Dull White Vivid Black '@'
+itemToAppearance PlantPersonCorpse    = Cell Dull Green Dull Red 'P'
 
 reverseAppearance :: Cell -> Cell
 reverseAppearance (Cell fintensity fcolor bintensity bcolor ch) =
@@ -230,7 +236,9 @@ levelFeatureToAppearance lcell monotonic_time x y = case lcell of
   OpenHatch         -> Cell Vivid Yellow Dull Black '-'
   Window            -> Cell Vivid Cyan Dull Black '◘'
   Soil              -> Cell Dull Yellow Dull Black '.'
-  
+  Blood             -> Cell Vivid Red Dull Black '≈'
+  BloodCoagulated   -> Cell Dull Red Dull Black '≈'
+
   cell | cell == Water ->
     let theta = sin (dx*9338.3) + cos (sin (dy*3.3)*119) - sin (sin dx+cos dy*3331 + sin sectime)
 
