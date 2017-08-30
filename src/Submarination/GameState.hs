@@ -139,7 +139,7 @@ initialGameState = GameState
   , _vendorMenu      = Nothing
   , _turn = 1
   , _inputTurn = 1
-  , _godMode = True
+  , _godMode = False
   , _levels = M.fromList
                 [(0, surfaceLevel)
                 ,(50, rebase (V2 70 70) intertidalZone)]
