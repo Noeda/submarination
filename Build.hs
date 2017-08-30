@@ -8,7 +8,11 @@ import Development.Shake
 import Development.Shake.Command
 import Development.Shake.FilePath
 import Development.Shake.Util
+import System.Console.GetOpt
 import System.Process
+
+data Flags = Profile deriving Eq
+flags = [Option "" ["profile-game"] (NoArg $ Right Profile) "Compile with profiling."]
 
 findLocalRoot yaml = liftIO $ do
   rlines <- readProcess "stack" ["--stack-yaml", yaml, "path"] ""
@@ -25,9 +29,11 @@ hsDependencies = do
   need $ hs <> hs_exe <> buildableLevels
 
 main :: IO ()
-main = shakeArgs shakeOptions{shakeFiles="_build", shakeThreads=2} $ do
-  want ["_build/submarination" <.> exe
-       ,"_build/submarination.min.js"]
+main = shakeArgsWith shakeOptions{shakeFiles="_build", shakeThreads=2} flags $ \flags targets -> return $ Just $ do
+  if null targets
+    then want ["_build/submarination" <.> exe
+              ,"_build/submarination.min.js"]
+    else want targets
 
   phony "clean" $ do
     () <- cmd "stack clean --stack-yaml stack.yaml"
@@ -61,7 +67,9 @@ main = shakeArgs shakeOptions{shakeFiles="_build", shakeThreads=2} $ do
 
   "_build/submarination" <.> exe %> \out -> do
     hsDependencies
-    cmd "stack build --flag submarination:use-baked-levels --stack-yaml stack.yaml --local-bin-path" (takeDirectory1 out) "--copy-bins"
+
+    let prof = if Profile `elem` flags then "--library-profiling --executable-profiling" else ""
+    cmd "stack build --flag submarination:use-baked-levels --stack-yaml stack.yaml --local-bin-path" (takeDirectory1 out) "--copy-bins" prof
 
   "_build/submarination.min.js" %> \out -> do
     let inp = (dropExtension $ dropExtension out) <.> "js"
