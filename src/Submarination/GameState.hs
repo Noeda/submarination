@@ -30,6 +30,7 @@ module Submarination.GameState
   , gsIsOccupied
   , glActiveMetadataAt
   , glCellAt
+  , glCreatureAt
   , glItemsAt
   -- ** Level items
   , gmAddItemInventory
@@ -113,6 +114,7 @@ import Submarination.Direction
 import Submarination.GameState.Types
 import Submarination.Item
 import Submarination.Level
+import Submarination.Random
 import Submarination.Sub
 import Submarination.Vendor
 
@@ -238,38 +240,44 @@ gsDeathCheck death_reason gs =
 
 gsAdvanceTurn :: GameState -> GameState
 gsAdvanceTurn gs | gs^.dead = gs
-gsAdvanceTurn gs = flip execState gs $ do
-  turn += 1
-
-  godModeCheck
-
-  -- Make submarine go deeper if it's diving
-  is_diving <- use $ sub.subDiving
-  when is_diving $ depth += 1
-
-  curdepth <- use depth
-  when (curdepth >= 50) $
-    sub.subDiving .= False
-
-  -- Oxygen runs out if you are not on surface and outside submarine
-  ((,) <$> use (to gsIsOnSurface) <*> use (to gsPlayerIsInsideSub)) >>= \case
-    (False, False) -> player.playerOxygen -= 1
-    _ -> do
-      player.playerOxygen %= max (-1)
-      player.playerOxygen += 1
-
-  -- Clamp oxygen
-  gs <- get
-  player.playerOxygen %= max (-50) . min (gsMaximumOxygenLevel gs)
-
-  oxygen <- use $ player.playerOxygen
-  when (oxygen <= 0) $ do
-    player.playerHealth -= 1
-    modify $ gsDeathCheck "Asphyxia"
-
-  walkActiveMetadata
-  godModeCheck
+gsAdvanceTurn gs =
+  runST $ flip execStateT gs $ runWithRandomSupply (fromIntegral $ gs^.turn) go
  where
+  go :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
+  go = do
+    turn += 1
+
+    godModeCheck
+
+    -- Make submarine go deeper if it's diving
+    is_diving <- use $ sub.subDiving
+    when is_diving $ depth += 1
+
+    curdepth <- use depth
+    when (curdepth >= 50) $
+      sub.subDiving .= False
+
+    -- Oxygen runs out if you are not on surface and outside submarine
+    ((,) <$> use (to gsIsOnSurface) <*> use (to gsPlayerIsInsideSub)) >>= \case
+      (False, False) -> player.playerOxygen -= 1
+      _ -> do
+        player.playerOxygen %= max (-1)
+        player.playerOxygen += 1
+
+    -- Clamp oxygen
+    gs <- get
+    player.playerOxygen %= max (-50) . min (gsMaximumOxygenLevel gs)
+
+    oxygen <- use $ player.playerOxygen
+    when (oxygen <= 0) $ do
+      player.playerHealth -= 1
+      modify $ gsDeathCheck "Asphyxia"
+
+    walkCreatures
+    walkActiveMetadata
+    godModeCheck
+
+  godModeCheck :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
   godModeCheck = do
     god_mode <- use godMode
     when god_mode $ do
@@ -277,20 +285,39 @@ gsAdvanceTurn gs = flip execState gs $ do
       player.playerHealth .= (gs^.player.playerMaximumHealth)
       player.playerOxygen .= (gs^.to gsMaximumOxygenLevel)
 
+  walkActiveMetadata :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
   walkActiveMetadata = do
     walkCurrentLevelMetadata
     walkSubLevelMetadata
 
+  walkCreatures :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
+  walkCreatures = do
+    walkSubLevelCreatures
+    walkCurrentLevelCreatures
+
+  walkCurrentLevelCreatures :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
+  walkCurrentLevelCreatures = do
+    lvl <- use glCurrentLevel
+    void $ walkCreaturesLevel (lvl, V2 0 0)
+
+  walkSubLevelCreatures :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
+  walkSubLevelCreatures = do
+    topo <- use $ sub.subTopology
+    void $ forOf subLevelsWithOffset topo walkCreaturesLevel
+
+  walkCurrentLevelMetadata :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
   walkCurrentLevelMetadata = do
     lvl <- use glCurrentLevel
     new_level <- walkLevel (lvl, V2 0 0)
     glCurrentLevel .= new_level
 
+  walkSubLevelMetadata :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
   walkSubLevelMetadata = do
     topo <- use $ sub.subTopology
     new_sub_topo <- forOf subLevelsWithOffset topo walkLevel
     sub.subTopology .= new_sub_topo
 
+  walkLevel :: forall s. (Level, V2 Int) -> RandomSupplyT (StateT GameState (ST s)) Level
   walkLevel (lvl, offset) = do
     current_turn <- use turn
     playerpos <- use $ player.playerPosition
@@ -301,6 +328,40 @@ gsAdvanceTurn gs = flip execState gs $ do
       (OpenHatch, metadata@HatchAutoClose{}) ->
         (OpenHatch, Just metadata)
       (feature, _) -> (feature, Nothing)
+
+  walkCreaturesLevel :: forall s. (Level, V2 Int) -> RandomSupplyT (StateT GameState (ST s)) Level
+  walkCreaturesLevel (lvl, offset) = do
+    flip evalStateT S.empty $ ifor_ (lvl^.creatures) $ \pos _creature -> do
+      sset <- get
+      unless (pos `S.member` sset) $ do
+        modify $ S.insert pos
+        lift (use (glCreatureAt pos)) >>= \case
+          Nothing -> return ()
+          Just creature -> lift $ cycleCreature (pos + offset) creature
+    return lvl
+
+cycleCreature :: (MonadRandomSupply m, MonadState s m, HasGameState s)
+              => V2 Int
+              -> Creature
+              -> m ()
+cycleCreature pos creature | isAnimal creature = go (4 :: Int)
+ where
+  go 0 = return ()
+  go tries = do
+    dir <- randomDirection
+    gs <- get
+
+    let new_pos = move1V2 dir pos
+        is_okay = isNothing (gs^.gameState.glCreatureAt new_pos) &&
+                  isWalkable (gs^.gameState.glCellAt new_pos)
+
+    if is_okay
+      then do gameState.glCreatureAt pos .= Nothing
+              gameState.glCreatureAt new_pos .= Just creature
+
+      else go (tries-1)
+cycleCreature _ _ = return ()
+{-# INLINEABLE cycleCreature #-}
 
 gmMoveToDirection :: Direction -> GameState -> Maybe GameState
 gmMoveToDirection direction gs = flip evalState gs $ runMaybeT $ do
@@ -909,4 +970,9 @@ gsIsDead = _dead
 
 gsDeathReason :: GameState -> Text
 gsDeathReason = (^.deathReason)
+
+glCreatureAt :: V2 Int -> Lens' GameState (Maybe Creature)
+glCreatureAt = subOrLevelLens creatureAt subCreatureP
+{-# INLINE glCreatureAt #-}
+
 

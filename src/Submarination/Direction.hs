@@ -1,7 +1,8 @@
 module Submarination.Direction
   ( Direction(..)
   , allNeighbours
-  , directionToDelta )
+  , directionToDelta
+  , move1V2 )
   where
 
 import Data.Data
@@ -31,6 +32,9 @@ allNeighbours (V2 x y) =
   ,V2 (x-1) (y+1)
   ,V2 (x+1) (y-1)]
 {-# INLINEABLE allNeighbours #-}
+
+move1V2 :: Direction -> V2 Int -> V2 Int
+move1V2 dir = (+ directionToDelta dir)
 
 directionToDelta :: Direction -> V2 Int
 directionToDelta D2 = V2 0 1

@@ -5,6 +5,7 @@ module Submarination.Random
   , randomV2Spherical
   , randomOf
   , randomV2In
+  , randomDirection
   , RandomSupplyT() )
   where
 
@@ -17,6 +18,8 @@ import Data.Word
 import Linear.V2
 import Protolude
 import System.Random.MWC
+
+import Submarination.Direction
 
 newtype RandomSupplyT m a = RandomSupplyT { unwrapRandomSupplyT :: ReaderT (Gen (PrimState m)) m a }
   deriving ( Functor, Applicative, Monad, Typeable, Generic )
@@ -48,6 +51,12 @@ instance MonadRandomSupply m => MonadRandomSupply (ReaderT s m) where
   randomDouble = lift . randomDouble
   {-# INLINE randomDouble #-}
 
+instance MonadState s m => MonadState s (RandomSupplyT m) where
+  get = lift get
+  {-# INLINE get #-}
+  put = lift . put
+  {-# INLINE put #-}
+
 runWithRandomSupply :: PrimMonad m => Word32 -> RandomSupplyT m a -> m a
 runWithRandomSupply seed =
   (initialize (V.singleton seed) >>=) . runReaderT . unwrapRandomSupplyT
@@ -76,4 +85,16 @@ randomCoinToss :: MonadRandomSupply m => m Bool
 randomCoinToss = randomInt (0, 1) <&> \case
   0 -> False
   _ -> True
+
+randomDirection :: MonadRandomSupply m => m Direction
+randomDirection = randomInt (0, 7) <&> \case
+  0 -> D1
+  1 -> D2
+  2 -> D3
+  3 -> D4
+  4 -> D6
+  5 -> D7
+  6 -> D8
+  _ -> D9
+{-# INLINEABLE randomDirection #-}
 

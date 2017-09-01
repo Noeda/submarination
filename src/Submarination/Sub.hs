@@ -16,6 +16,7 @@ module Submarination.Sub
   , subCellP
   , subItems
   , subItemsP
+  , subCreatureP
   , subActiveMetadataAt
   , subSize
   , subLevels
@@ -28,6 +29,7 @@ import Linear.V2
 import qualified Prelude as E
 import Protolude
 
+import Submarination.Creature
 import Submarination.Item
 import Submarination.Level
 
@@ -182,6 +184,10 @@ getAtomTopologyAt' coord@(V2 x y) topo threshold = do
 subActiveMetadataAt :: V2 Int -> Traversal' SubTopology (Maybe LevelActiveMetadata)
 subActiveMetadataAt = subLens activeMetadataAt
 {-# INLINE subActiveMetadataAt #-}
+
+subCreatureP :: V2 Int -> Traversal' SubTopology (Maybe Creature)
+subCreatureP = subLens creatureAt
+{-# INLINE subCreatureP #-}
 
 subItemsP :: V2 Int -> Traversal' SubTopology [Item]
 subItemsP = subLens itemsAt

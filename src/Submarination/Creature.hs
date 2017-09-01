@@ -5,7 +5,8 @@ module Submarination.Creature
   , foodVendor
   , ammoVendor
   , toolVendor
-  , materialVendor )
+  , materialVendor
+  , isAnimal )
   where
 
 import Data.Binary
@@ -23,6 +24,14 @@ data Creature
   | Camobream
   | Gator
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
+
+isAnimal :: Creature -> Bool
+isAnimal Snoatfish = True
+isAnimal Biddy = True
+isAnimal Enneapus = True
+isAnimal Camobream = True
+isAnimal Gator = True
+isAnimal _ = False
 
 foodVendor :: Creature
 foodVendor = FoodVendor
