@@ -606,7 +606,7 @@ renderCreatureListing creatures =
 renderList :: [a] -> (a -> Int -> VerticalBoxRender (GameMonadRoTerminal s) ()) -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderList lst fun = go lst (0 :: Int)
  where
-  go [] _ = return ()
+  go [] _ = appendText 2 1 Dull White Dull Black ""
   go (x:rest) num_items | num_items < 7 = do
     y <- getSideY
     fun x y
@@ -749,7 +749,7 @@ renderAdditionalHud creature_count = do
       appendText 3 0 Vivid Green Dull Black "A"
       appendText 9 1 Vivid Green Dull Black "Z"
       appendText 2 0 Dull White Dull Black "[     ] Purchase"
-      appendText 3 1 Vivid Green Dull Black "SPACE"
+      appendText 3 2 Vivid Green Dull Black "SPACE"
 
     _ -> return ()
 
