@@ -58,6 +58,9 @@ startGame knob = do
 #endif
     ch | not (gsIsDead gs) -> do
       case ch of
+        CharKey '.' | not in_active_menu ->
+          modify gsWait
+
         CharKey dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) && not in_active_menu ->
           modifyConditional $ move (CharKey dir_ch)
 

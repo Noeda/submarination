@@ -640,11 +640,13 @@ renderItemPileHud = do
     appendText 54 2 Vivid Green Dull Black "G"
 
 statusAppearance :: Status -> (ColorIntensity, Color, ColorIntensity, Color)
-statusAppearance Slow = (Dull, Red, Dull, Black)
+statusAppearance Slow     = (Dull, Red, Dull, Black)
+statusAppearance Hungry   = (Dull, Red, Dull, Black)
+statusAppearance Starving = (Vivid, Red, Dull, Black)
 
 renderStatuses :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderStatuses = do
-  statuses <- gr gsCurrentStatuses
+  statuses <- gr gsSanitizedCurrentStatuses
   unless (null statuses) $ do
     flip evalStateT 53 $ for_ statuses $ \status -> do
       let status_name = statusName status

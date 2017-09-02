@@ -17,9 +17,10 @@ module Submarination.GameState
   , gsRetractInputTurn
   , gsCycleGame
   , gsTurn
-  , gmMoveToDirection
+  , gsWait
   , gsIsDead
   , gsDeathReason
+  , gmMoveToDirection
   -- * Messages
   , gsAddMessage
   , gsCurrentMessage
@@ -41,7 +42,10 @@ module Submarination.GameState
   , surfaceLevel
   -- * Statuses
   , gsCurrentStatuses
+  , gsSanitizedCurrentStatuses
   , gsIsSlow
+  , gsIsHungry
+  , gsIsStarving
   -- ** Status utilities
   , statusName
   , Status(..)
@@ -120,6 +124,8 @@ import Submarination.Vendor
 
 statusName :: Status -> Text
 statusName Slow = "Slow"
+statusName Hungry = "Hungry"
+statusName Starving = "Starving"
 
 type GameMonad m = StateT GameState m
 type GameMonadRo m = ReaderT GameState m
@@ -131,6 +137,7 @@ initialGameState = GameState
                      , _playerHealth = 100
                      , _playerOxygen = 100
                      , _playerShells = 1000
+                     , _playerHunger = initialHungerLevel
                      , _playerInventory = []
                      , _playerDragging = Nothing }
   , _activeMenuState = M.empty
@@ -163,6 +170,9 @@ initialGameState = GameState
 
   placeStorageBox = subItemsP (V2 6 1) .~ [StorageBox []]
 
+initialHungerLevel :: Int
+initialHungerLevel = 800
+
 glSub :: Lens' GameState Sub
 glSub = sub
 {-# INLINE glSub #-}
@@ -181,11 +191,34 @@ gllAtPlayer inner_lens = lens get_it set_it
 {-# INLINE gllAtPlayer #-}
 
 gsCurrentStatuses :: GameState -> S.Set Status
-gsCurrentStatuses gs =
-  if gsIsSlow gs then S.singleton Slow else S.empty
+gsCurrentStatuses gs = mconcat
+  [check gsIsSlow     Slow
+  ,check gsIsHungry   Hungry
+  ,check gsIsStarving Starving]
+ where
+  check fun stat = if fun gs then S.singleton stat else S.empty
+
+-- | Same as `gsCurrentStatuses` but redundant Statuses will be removed. That
+-- means you won't get Hungry and Starving together, only either Hungry or
+-- Starving or neither of them.
+gsSanitizedCurrentStatuses :: GameState -> S.Set Status
+gsSanitizedCurrentStatuses gs =
+  if Hungry `S.member` stats && Starving `S.member` stats
+    then S.delete Hungry stats
+    else stats
+ where
+  stats = gsCurrentStatuses gs
 
 gsIsSlow :: GameState -> Bool
-gsIsSlow gs = isJust $ gs^.player.playerDragging
+gsIsSlow gs =
+  (isJust $ gs^.player.playerDragging) ||
+  (gs^.player.playerHunger <= 100)
+
+gsIsHungry :: GameState -> Bool
+gsIsHungry gs = gs^.player.playerHunger <= 500
+
+gsIsStarving :: GameState -> Bool
+gsIsStarving gs = gs^.player.playerHunger <= 150
 
 glCurrentVendorMenuSelection :: Lens' GameState (Maybe Int)
 glCurrentVendorMenuSelection = vendorMenu
@@ -267,6 +300,19 @@ gsAdvanceTurn gs =
     -- Clamp oxygen
     gs <- get
     player.playerOxygen %= max (-50) . min (gsMaximumOxygenLevel gs)
+
+    -- Hunger tick
+    player.playerHunger -= 1
+
+    -- ...but don't increase hunger on surface. Player should have all the time
+    -- they need to buy their stuff.
+    when (gsIsOnSurface gs) $
+      player.playerHunger .= initialHungerLevel
+
+    gs <- get
+    when (gs^.player.playerHunger <= 0) $ do
+      player.playerHealth .= 0
+      modify $ gsDeathCheck "Starvation"
 
     oxygen <- use $ player.playerOxygen
     when (oxygen <= 0) $ do
@@ -362,6 +408,9 @@ cycleCreature pos creature | isAnimal creature = go (4 :: Int)
       else go (tries-1)
 cycleCreature _ _ = return ()
 {-# INLINEABLE cycleCreature #-}
+
+gsWait :: GameState -> GameState
+gsWait = gsAdvanceTurn
 
 gmMoveToDirection :: Direction -> GameState -> Maybe GameState
 gmMoveToDirection direction gs = flip evalState gs $ runMaybeT $ do
