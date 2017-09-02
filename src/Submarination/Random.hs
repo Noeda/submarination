@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Submarination.Random
   ( runWithRandomSupply
   , MonadRandomSupply(..)
@@ -10,56 +12,17 @@ module Submarination.Random
   where
 
 import Control.Lens ( (<&>) )
-import Control.Monad.Primitive
-import Control.Monad.Trans.Class
 import qualified Data.Vector as VB
-import qualified Data.Vector.Unboxed as V
-import Data.Word
 import Linear.V2
 import Protolude
-import System.Random.MWC
 
 import Submarination.Direction
-
-newtype RandomSupplyT m a = RandomSupplyT { unwrapRandomSupplyT :: ReaderT (Gen (PrimState m)) m a }
-  deriving ( Functor, Applicative, Monad, Typeable, Generic )
-
-class Monad m => MonadRandomSupply m where
-  randomInt    :: (Int, Int)       -> m Int
-  randomDouble :: (Double, Double) -> m Double
-
-instance MonadTrans RandomSupplyT where
-  lift = RandomSupplyT . lift
-  {-# INLINE lift #-}
-
-instance PrimMonad m => MonadRandomSupply (RandomSupplyT m) where
-  randomInt = RandomSupplyT . (ask >>=) . uniformR
-  {-# INLINE randomInt #-}
-
-  randomDouble = RandomSupplyT . (ask >>=) . uniformR
-  {-# INLINE randomDouble #-}
-
-instance MonadRandomSupply m => MonadRandomSupply (StateT s m) where
-  randomInt    = lift . randomInt
-  {-# INLINE randomInt #-}
-  randomDouble = lift . randomDouble
-  {-# INLINE randomDouble #-}
-
-instance MonadRandomSupply m => MonadRandomSupply (ReaderT s m) where
-  randomInt    = lift . randomInt
-  {-# INLINE randomInt #-}
-  randomDouble = lift . randomDouble
-  {-# INLINE randomDouble #-}
-
-instance MonadState s m => MonadState s (RandomSupplyT m) where
-  get = lift get
-  {-# INLINE get #-}
-  put = lift . put
-  {-# INLINE put #-}
-
-runWithRandomSupply :: PrimMonad m => Word32 -> RandomSupplyT m a -> m a
-runWithRandomSupply seed =
-  (initialize (V.singleton seed) >>=) . runReaderT . unwrapRandomSupplyT
+import Submarination.Random.Common
+#ifdef GHCJS_BROWSER
+import Submarination.Random.GHCJS
+#else
+import Submarination.Random.Native
+#endif
 
 randomV2Spherical :: MonadRandomSupply m => Double -> m (V2 Double)
 randomV2Spherical scale = do

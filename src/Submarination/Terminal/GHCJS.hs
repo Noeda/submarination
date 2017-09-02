@@ -22,6 +22,7 @@ import Protolude
 import System.Console.ANSI
 import System.IO.Unsafe ( unsafePerformIO )
 
+import Submarination.Key
 import Submarination.Terminal.Common
 
 foreign import javascript "$r = document.createElement('span');" make_span_element :: IO JSVal
@@ -35,12 +36,13 @@ foreign import javascript "$1.addEventListener('keydown', $2);" attach_keydown_h
 foreign import javascript "$1.removeEventListener('keydown', $2);" detach_keydown_handler :: JSVal -> Callback (JSVal -> IO ()) -> IO ()
 foreign import javascript "$r = document.getElementsByTagName('body')[0];" get_body :: IO JSVal
 foreign import javascript unsafe "$r = $1.key || String.fromCharCode($1.keyCode);" get_event_char :: JSVal -> IO JSString
+foreign import javascript "console.log($1);" console_log :: JSString -> IO ()
 
 globalSpans :: MVar (M.Map (Int, Int) JSVal)
 globalSpans = unsafePerformIO $ newMVar M.empty
 {-# NOINLINE globalSpans #-}
 
-inputKey :: TVar (Maybe Char)
+inputKey :: TVar (Maybe Key)
 inputKey = unsafePerformIO $ newTVarIO Nothing
 {-# NOINLINE inputKey #-}
 
@@ -77,11 +79,28 @@ spanner term_div action = do
 
   callback <- asyncCallback1 $ \val -> do
     js_str <- get_event_char val
-    let ch_str = unpack js_str
-    for_ ch_str $ \ch ->
-      atomically $ readTVar inputKey >>= \case
-        Nothing -> writeTVar inputKey (Just ch)
-        Just{} -> retry
+    case unpack js_str of
+      [ch] ->
+        atomically $ readTVar inputKey >>= \case
+          Nothing -> writeTVar inputKey (Just $ CharKey ch)
+          Just{} -> retry
+      "ArrowLeft" ->
+        atomically $ readTVar inputKey >>= \case
+          Nothing -> writeTVar inputKey (Just KeyLeft)
+          Just{} -> retry
+      "ArrowUp" ->
+        atomically $ readTVar inputKey >>= \case
+          Nothing -> writeTVar inputKey (Just KeyUp)
+          Just{} -> retry
+      "ArrowRight" ->
+        atomically $ readTVar inputKey >>= \case
+          Nothing -> writeTVar inputKey (Just KeyRight)
+          Just{} -> retry
+      "ArrowDown" ->
+        atomically $ readTVar inputKey >>= \case
+          Nothing -> writeTVar inputKey (Just KeyDown)
+          Just{} -> retry
+      _ -> return ()
 
   body <- get_body
   set_style body "background: #000;"
@@ -185,7 +204,7 @@ mutateTerminalStateM :: forall m a. MonadTerminalState m
                      -> m a
 mutateTerminalStateM action = mutateTerminalStateMRaw action getTerminalSize paintTerminalM
 
-getInputChar :: MonadIO m => m Char
+getInputChar :: MonadIO m => m Key
 getInputChar = liftIO $ atomically $ readTVar inputKey >>= \case
   Nothing -> retry
   Just ch -> do

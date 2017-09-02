@@ -109,13 +109,13 @@ regularGrid (V2 dx dy) num_points_x num_points_y element =
 perturbGrid :: VoronoiGrid a -> VoronoiGrid a
 perturbGrid grid =
   runST $
-  runWithRandomSupply 4000 $
+  runWithRandomSupply 3000 $
   traverseOf points ((<$> randomV2Spherical 1.0) . (+)) grid
 
 elementize :: [a] -> VoronoiGrid a -> VoronoiGrid a
 elementize possible_elements grid =
   runST $
-  runWithRandomSupply 4000 $
+  runWithRandomSupply 3000 $
   traverseOf elements randomizer grid
  where
   vec_possible_elements = V.fromList possible_elements

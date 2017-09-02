@@ -12,6 +12,7 @@ import Prelude ( String )
 import Protolude hiding ( to, drop )
 
 import Submarination.GameState
+import Submarination.Key
 import Submarination.Render
 import Submarination.Terminal
 import Submarination.Vendor
@@ -32,9 +33,9 @@ splashScreen knob = do
   ch <- getInputChar
   case ch of
 #ifndef GHCJS_BROWSER
-    'm' -> return ()
+    CharKey 'm' -> return ()
 #endif
-    ' ' -> evalStateT (startGame knob) initialGameState
+    CharKey ' ' -> evalStateT (startGame knob) initialGameState
     _ -> splashScreen knob
 
 startGame :: MonadIO m => UpdateRequestStateKnob -> GameMonad m ()
@@ -53,35 +54,38 @@ startGame knob = do
 
   case ch of
 #ifndef GHCJS_BROWSER
-    'm' -> return ()
+    CharKey 'm' -> return ()
 #endif
     ch | not (gsIsDead gs) -> do
       case ch of
-        dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) && not in_active_menu ->
+        CharKey dir_ch | dir_ch `elem` ("hjklyubn123456789" :: String) && not in_active_menu ->
+          modifyConditional $ move (CharKey dir_ch)
+
+        dir_ch | dir_ch == KeyUp || dir_ch == KeyLeft || dir_ch == KeyRight || dir_ch == KeyDown ->
           modifyConditional $ move dir_ch
 
         -- Item menus
-        digit | isDigit digit && in_active_menu ->
+        CharKey digit | isDigit digit && in_active_menu ->
           itemDigitSelect (ord digit - ord '0')
-        ch | gs^?to gmActiveMenuHandler._Just.to offKeys.to (ch `S.member`) == Just True ->
+        CharKey ch | gs^?to gmActiveMenuHandler._Just.to offKeys.to (ch `S.member`) == Just True ->
           itemMenuOff
-        ch | Just ms <- menuKeyToMenuStateTrigger gs ch,
-             Just ms /= gmActiveMenu gs ->
+        CharKey ch | Just ms <- menuKeyToMenuStateTrigger gs ch,
+                     Just ms /= gmActiveMenu gs ->
           itemTrigger ms
-        ch | Just MultiSelect <- gmCurrentSelectMode gs,
-             ch == ' ' || ch == '\n' || ch == '\r' ->
+        CharKey ch | Just MultiSelect <- gmCurrentSelectMode gs,
+                     ch == ' ' || ch == '\n' || ch == '\r' ->
           itemSelectAction
-        ch | gs^?to gmActiveMenuHandler._Just.to menuKeys.to (ch `M.member`) == Just True ->
+        CharKey ch | gs^?to gmActiveMenuHandler._Just.to menuKeys.to (ch `M.member`) == Just True ->
           itemMenuAction ch
-        ch | ch `elem` ("az" :: String) && in_active_menu ->
+        CharKey ch | ch `elem` ("az" :: String) && in_active_menu ->
           navigateCursor ch
 
         -- Vendor menu
-        ch | ch `elem` ("az " :: String) && in_vendor ->
+        CharKey ch | ch `elem` ("az " :: String) && in_vendor ->
           vendorMenu ch
 
         -- Dragging
-        'g' | not in_active_menu ->
+        CharKey 'g' | not in_active_menu ->
           drag
 
         _ -> modify gsRetractInputTurn
@@ -162,22 +166,26 @@ modifyConditional modifier = do
   old <- get
   for_ (modifier old) put
 
-move :: Char -> (GameState -> Maybe GameState)
-move 'j' = gmMoveToDirection D2
-move 'k' = gmMoveToDirection D8
-move 'h' = gmMoveToDirection D4
-move 'l' = gmMoveToDirection D6
-move 'y' = gmMoveToDirection D7
-move 'u' = gmMoveToDirection D9
-move 'b' = gmMoveToDirection D1
-move 'n' = gmMoveToDirection D3
-move '2' = gmMoveToDirection D2
-move '8' = gmMoveToDirection D8
-move '4' = gmMoveToDirection D4
-move '6' = gmMoveToDirection D6
-move '7' = gmMoveToDirection D7
-move '9' = gmMoveToDirection D9
-move '1' = gmMoveToDirection D1
-move '3' = gmMoveToDirection D3
+move :: Key -> (GameState -> Maybe GameState)
+move (CharKey 'j') = gmMoveToDirection D2
+move (CharKey 'k') = gmMoveToDirection D8
+move (CharKey 'h') = gmMoveToDirection D4
+move (CharKey 'l') = gmMoveToDirection D6
+move (CharKey 'y') = gmMoveToDirection D7
+move (CharKey 'u') = gmMoveToDirection D9
+move (CharKey 'b') = gmMoveToDirection D1
+move (CharKey 'n') = gmMoveToDirection D3
+move (CharKey '2') = gmMoveToDirection D2
+move (CharKey '8') = gmMoveToDirection D8
+move (CharKey '4') = gmMoveToDirection D4
+move (CharKey '6') = gmMoveToDirection D6
+move (CharKey '7') = gmMoveToDirection D7
+move (CharKey '9') = gmMoveToDirection D9
+move (CharKey '1') = gmMoveToDirection D1
+move (CharKey '3') = gmMoveToDirection D3
+move KeyUp         = gmMoveToDirection D8
+move KeyLeft       = gmMoveToDirection D4
+move KeyRight      = gmMoveToDirection D6
+move KeyDown       = gmMoveToDirection D2
 move _ = const Nothing
 

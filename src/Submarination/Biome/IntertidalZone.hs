@@ -38,9 +38,12 @@ intertidalZone = intertidalZoneGen
 #endif
 {-# NOINLINE intertidalZone #-}
 
+zoneSize :: Int
+zoneSize = 120
+
 darkenRocks :: Level -> Level
 darkenRocks lvl = flip execState lvl $
-  for_ [0..80*3] $ \x -> for_ [0..80*3] $ \y -> do
+  for_ [0..zoneSize] $ \x -> for_ [0..zoneSize] $ \y -> do
     let old_cell = lvl^.cellAt (V2 x y)
     when (old_cell == Rock || old_cell == MountainRock) $
       when (all (\pos -> let c = lvl^.cellAt pos
@@ -57,7 +60,9 @@ isAcceptableCreatureLocation (V2 x y) lvl =
   isWalkable (lvl^.cellAt (V2 x y)) &&
   isNothing (lvl^.creatureAt (V2 x y))
 
-placeCreatures :: PrimMonad m => Level -> RandomSupplyT m Level
+type Randomy s a = RandomSupplyT (StateT Level (ST s)) a
+
+placeCreatures :: Level -> Randomy s Level
 placeCreatures = execStateT $ do
   placeCorpseParty
   placeGators
@@ -67,29 +72,29 @@ placeCreatures = execStateT $ do
   placeCamobream
  where
   randomAcceptableCreatureLocation action = do
-    pos <- randomV2In (V2 0 0, V2 240 240)
+    pos <- randomV2In (V2 0 0, V2 zoneSize zoneSize)
     lvl <- get
     if isAcceptableCreatureLocation pos lvl
       then action pos
       else randomAcceptableCreatureLocation action
 
-  placeGators = replicateM_ 100 $
+  placeGators = replicateM_ 20 $
     randomAcceptableCreatureLocation $ \pos -> do
       creatureAt pos .= Just Gator
 
-  placeSnoatfish = replicateM_ 400 $
+  placeSnoatfish = replicateM_ 100 $
     randomAcceptableCreatureLocation $ \pos -> do
       creatureAt pos .= Just Snoatfish
 
-  placeBiddy = replicateM_ 200 $
+  placeBiddy = replicateM_ 50 $
     randomAcceptableCreatureLocation $ \pos -> do
       creatureAt pos .= Just Biddy
 
-  placeEnneapus = replicateM_ 30 $
+  placeEnneapus = replicateM_ 10 $
     randomAcceptableCreatureLocation $ \pos -> do
       creatureAt pos .= Just Enneapus
 
-  placeCamobream = replicateM_ 60 $
+  placeCamobream = replicateM_ 15 $
     randomAcceptableCreatureLocation $ \pos -> do
       creatureAt pos .= Just Camobream
 
@@ -106,7 +111,7 @@ placeCreatures = execStateT $ do
     ncoords <- fmap round <$> randomV2Spherical 8
     actuallyPlaceCorpseParty (n-1) (coords + ncoords)
 
-placeBloodSpatter :: PrimMonad m => V2 Int -> Level -> RandomSupplyT m Level
+placeBloodSpatter :: V2 Int -> Level -> Randomy s Level
 placeBloodSpatter loc = execStateT $ go loc (5 :: Int)
  where
   go _ 0 = return ()
@@ -122,7 +127,7 @@ placeBloodSpatter loc = execStateT $ go loc (5 :: Int)
 intertidalZoneGen :: Level
 intertidalZoneGen = runST $
   execStateT
-    (runWithRandomSupply 123 layout)
+    (runWithRandomSupply 12938 layout)
     (emptyLevel Rock)
  where
   voronoi :: VoronoiGrid LevelCell
@@ -137,18 +142,18 @@ intertidalZoneGen = runST $
     combineNeighbours (\neighbours e3 -> if length (filter (== Rock) neighbours) >= 2
                                            then Rock
                                            else e3) $
-    combineNeighbours' (\_ e3 (V2 x y) -> if x <= 6 || y <= 6 || x >= 234 || y >= 234
+    combineNeighbours' (\_ e3 (V2 x y) -> if x <= 6 || y <= 6 || x >= fromIntegral zoneSize-6 || y >= fromIntegral zoneSize-6
                                             then Rock
                                             else e3) $
     elementize [Water, Water, Water, HappyCoral, Soil, Soil, Rock] $
     perturbGrid $
     perturbGrid $
-    regularGrid (V2 3 3) 80 80 Water
+    regularGrid (V2 3 3) (zoneSize `div` 3) (zoneSize `div` 3) Water
 
   layout :: RandomSupplyT (StateT Level (ST s)) ()
   layout = do
-    for_ [0..80*3 :: Int] $ \x ->
-      for_ [0..80*3 :: Int] $ \y -> do
+    for_ [0..zoneSize :: Int] $ \x ->
+      for_ [0..zoneSize :: Int] $ \y -> do
         let p = pointAt (V2 (fromIntegral x) (fromIntegral y)) voronoi
             pos = V2 x y
         if p == Rock

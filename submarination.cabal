@@ -25,9 +25,11 @@ library
                       Submarination.GameState
                       Submarination.GameState.Types
                       Submarination.Item
+                      Submarination.Key
                       Submarination.MonotonicClock
                       Submarination.Level
                       Submarination.Random
+                      Submarination.Random.Common
                       Submarination.Render
                       Submarination.Sub
                       Submarination.Vendor
@@ -41,10 +43,12 @@ library
 
   if impl(ghcjs)
     cpp-options:       -DGHCJS_BROWSER
-    exposed-modules:   Submarination.Terminal.GHCJS
+    exposed-modules:   Submarination.Random.GHCJS
+                       Submarination.Terminal.GHCJS
     build-depends:     ghcjs-base
   else
-    exposed-modules:   Submarination.Terminal.Unix
+    exposed-modules:   Submarination.Random.Native
+                       Submarination.Terminal.Unix
 
   build-depends:       AC-Vector
                       ,ansi-terminal
@@ -60,7 +64,7 @@ library
                       ,linear
                       ,mtl
                       ,mwc-random
-                      ,primitive
+                      ,primitive>=0.6.1.0
                       ,protolude
                       ,stm
                       ,text

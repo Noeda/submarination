@@ -485,9 +485,7 @@ gsCurrentAreaName gs =
     else "Depth " <> show (gs^.depth) <> "m"
 
 gsIsOccupied :: V2 Int -> GameState -> Bool
-gsIsOccupied coords gamestate =
-  let cr = gamestate^.glCurrentLevel
-   in isJust $ cr^.creatures.at coords
+gsIsOccupied coords gamestate = isJust $ gamestate^.glCreatureAt coords
 
 gsIsOnSurface :: GameState -> Bool
 gsIsOnSurface gs = gs^.depth == 0
@@ -541,14 +539,13 @@ gmAttemptPurchase gs = do
 gmCurrentVendorCreature :: GameState -> Maybe Creature
 gmCurrentVendorCreature gs = runMaybeExcept $ do
   let playerpos = gs^.player.playerPosition
-      lvl = gs^.glCurrentLevel
 
   for_ (allNeighbours playerpos) $ \candidate_pos ->
-    case lvl^.creatures.at candidate_pos of
-      Just FoodVendor -> throwE FoodVendor
-      Just AmmoVendor -> throwE AmmoVendor
+    case gs^.glCreatureAt candidate_pos of
+      Just FoodVendor     -> throwE FoodVendor
+      Just AmmoVendor     -> throwE AmmoVendor
       Just MaterialVendor -> throwE MaterialVendor
-      Just ToolVendor -> throwE ToolVendor
+      Just ToolVendor     -> throwE ToolVendor
       _ -> return ()
 
 gmActiveMenuHandler :: GameState -> Maybe ItemMenuHandler

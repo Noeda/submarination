@@ -29,5 +29,12 @@ vendorItems FoodVendor =
   ,Refrigerator []
   ,Microwave []
   ,Whiskey]
+vendorItems ToolVendor =
+  [WinchAndCable]
+vendorItems AmmoVendor =
+  [Taser
+  ,Explosives]
+vendorItems MaterialVendor =
+  [HullParts]
 vendorItems _ = []
 

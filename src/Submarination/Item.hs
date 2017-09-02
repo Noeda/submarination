@@ -35,6 +35,11 @@ data Item
   | PartiallyEatenCorpse
   | SkeletonCorpse
   | PlantPersonCorpse
+  | Explosives
+  | Taser
+  | Harpoon
+  | WinchAndCable
+  | HullParts
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 data Plural
@@ -80,6 +85,16 @@ itemName SkeletonCorpse Singular       = "skeletal remains"
 itemName SkeletonCorpse Many           = "skeletal remains"
 itemName PlantPersonCorpse Singular    = "plantperson corpse"
 itemName PlantPersonCorpse Many        = "plantperson corpses"
+itemName WinchAndCable Singular        = "a winch and cable"
+itemName WinchAndCable Many            = "winches and cables"
+itemName Explosives Singular           = "explosives"
+itemName Explosives Many               = "explosives"
+itemName Taser Singular                = "a taser"
+itemName Taser Many                    = "tasers"
+itemName HullParts Singular            = "a hull part"
+itemName HullParts Many                = "hull parts"
+itemName Harpoon Singular              = "a harpoon"
+itemName Harpoon Many                  = "harpoons"
 
 itemDescription :: Item -> Text
 itemDescription SardineTin =
@@ -106,6 +121,14 @@ itemDescription (StorageBox inner_items) =
           in if num_items > 1
                then " This box contains " <> show (length inner_items) <> " items."
                else " This box contains 1 item."
+itemDescription WinchAndCable =
+  "A winch and a cable. Tie it on yourself when you leave airlock and it can quickly pull you back in case of danger."
+itemDescription Explosives =
+  "Most personal problems can be solved with a healthy dose of volatile explosives."
+itemDescription Taser =
+  "Do you want to electrocute rare and exotic species for fun and profit? Then this is for you. Taser needs is powered and needs to be charged."
+itemDescription HullParts = "What are submarines made of? Flavorless, dull colored hull parts disappointing to the last screw, that's what they are made of."
+itemDescription Harpoon = "Use this harpoon to impale fish like kebab!!"
 
 -- TODO: write...uh..."fun" descriptions for all the corpses
 itemDescription WoundedCorpse = "A bloodied wounded corpse."
@@ -131,6 +154,11 @@ itemPrice BloatedCorpse = 0
 itemPrice PartiallyEatenCorpse = 0
 itemPrice SkeletonCorpse = 0
 itemPrice PlantPersonCorpse = 0
+itemPrice Taser = 400
+itemPrice Explosives = 500
+itemPrice WinchAndCable = 300
+itemPrice HullParts = 150
+itemPrice Harpoon = 500
 
 itemStorageLimit :: Item -> Int
 itemStorageLimit StorageBox{}   = 20

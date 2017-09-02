@@ -57,7 +57,7 @@ main = shakeArgsWith shakeOptions{shakeFiles="_build", shakeThreads=2} flags $ \
 
   "_build/*.gz" %> \out -> do
     need [dropExtension out]
-    cmd "gzip" "-k" (dropExtension out)
+    cmd "gzip" "-9" "-f" "-k" (dropExtension out)
 
   "src/Submarination/Biome/IntertidalZoneGen.hs" %> \out -> do
     need ["src/Submarination/Biome/IntertidalZone.hs"]

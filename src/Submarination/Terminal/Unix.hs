@@ -19,6 +19,7 @@ import Protolude hiding ( StateT, evalStateT )
 import System.Console.ANSI
 import System.IO
 
+import Submarination.Key
 import Submarination.Terminal.Common
 
 foreign import ccall setup_terminal :: Ptr TermiosStruct -> IO ()
@@ -130,6 +131,6 @@ getTerminalSize = liftIO $
     h <- peek h_ptr
     return (fromIntegral w, fromIntegral h)
 
-getInputChar :: MonadIO m => m Char
-getInputChar = liftIO getChar
+getInputChar :: MonadIO m => m Key
+getInputChar = CharKey <$> liftIO getChar
 

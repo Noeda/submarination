@@ -115,7 +115,7 @@ gitDate = $(gitCommitDate)
 renderSplashScreen :: MonadTerminalState m => m ()
 renderSplashScreen = mutateTerminalStateM $ do
   clear
-  unless (gitRev == "UNKNOWN") $ do
+  unless (gitDate == "UNKNOWN") $ do
     setText 0 0 Dull White Dull Black gitRev
     setText 0 1 Dull White Dull Black gitDate
 
@@ -138,6 +138,9 @@ renderSplashScreen = mutateTerminalStateM $ do
 #ifndef GHCJS_BROWSER
   setText 3 15  Vivid Cyan Dull Black "q)"
   setText 10 15 Vivid White Dull Black "Quit"
+#else
+  setText 3 20 Dull White Dull Black "(c) 2017 Mikko Juola"
+  setText 3 21 Dull White Dull Black "https://github.com/Noeda/submarination"
 #endif
 
 renderGameState :: MonadTerminalState m => GameState -> Integer -> m ()
@@ -194,6 +197,11 @@ itemToAppearance BloatedCorpse        = Cell Vivid Green Dull Red '@'
 itemToAppearance PartiallyEatenCorpse = Cell Vivid Green Dull Red '%'
 itemToAppearance SkeletonCorpse       = Cell Dull White Vivid Black '@'
 itemToAppearance PlantPersonCorpse    = Cell Dull Green Dull Red 'P'
+itemToAppearance HullParts            = Cell Dull Yellow Dull Black '['
+itemToAppearance Explosives           = Cell Vivid Red Dull Black '≡'
+itemToAppearance Taser                = Cell Vivid Blue Dull Black '('
+itemToAppearance Harpoon              = Cell Dull White Dull Black '('
+itemToAppearance WinchAndCable        = Cell Vivid Yellow Dull Black ']'
 
 reverseAppearance :: Cell -> Cell
 reverseAppearance (Cell fintensity fcolor bintensity bcolor ch) =
