@@ -13,7 +13,6 @@ module Submarination.Biome.IntertidalZone
 -- 5) Rocks
 --
 
-import Control.Monad.Primitive
 import Control.Lens hiding ( Level, elements )
 import Data.Maybe
 import qualified Data.Vector as V
