@@ -61,6 +61,7 @@ data ActiveMenuState
   = Pickup
   | Inventory
   | Drop
+  | Eat
   | ContainerTakeOut
   | ContainerPutIn
   | StartDive
@@ -104,6 +105,7 @@ data Status
   = Slow
   | Hungry
   | Starving
+  | Satiated
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
 makeLenses ''GameState
 makeLenses ''Player
@@ -178,7 +180,7 @@ data ItemMenuHandler = ItemMenuHandler
   , menuFilter            :: Item -> Bool
   , menuText              :: !Text
   , toActiveMenuInventory :: GameState -> [Item]
-  , otherKeys             :: M.Map Char Text
+  , otherKeys             :: GameState -> M.Map Char Text
   , itemLens              :: Lens' GameState [Item] }
   deriving ( Typeable )
 

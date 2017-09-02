@@ -46,6 +46,7 @@ module Submarination.GameState
   , gsIsSlow
   , gsIsHungry
   , gsIsStarving
+  , gsIsSatiated
   -- ** Status utilities
   , statusName
   , Status(..)
@@ -122,11 +123,6 @@ import Submarination.Random
 import Submarination.Sub
 import Submarination.Vendor
 
-statusName :: Status -> Text
-statusName Slow = "Slow"
-statusName Hungry = "Hungry"
-statusName Starving = "Starving"
-
 type GameMonad m = StateT GameState m
 type GameMonadRo m = ReaderT GameState m
 
@@ -194,7 +190,8 @@ gsCurrentStatuses :: GameState -> S.Set Status
 gsCurrentStatuses gs = mconcat
   [check gsIsSlow     Slow
   ,check gsIsHungry   Hungry
-  ,check gsIsStarving Starving]
+  ,check gsIsStarving Starving
+  ,check gsIsSatiated Satiated]
  where
   check fun stat = if fun gs then S.singleton stat else S.empty
 
@@ -209,10 +206,19 @@ gsSanitizedCurrentStatuses gs =
  where
   stats = gsCurrentStatuses gs
 
+statusName :: Status -> Text
+statusName Slow = "Slow"
+statusName Hungry = "Hungry"
+statusName Starving = "Starving"
+statusName Satiated = "Satiated"
+
 gsIsSlow :: GameState -> Bool
 gsIsSlow gs =
   (isJust $ gs^.player.playerDragging) ||
   (gs^.player.playerHunger <= 100)
+
+gsIsSatiated :: GameState -> Bool
+gsIsSatiated gs = gs^.player.playerHunger > initialHungerLevel
 
 gsIsHungry :: GameState -> Bool
 gsIsHungry gs = gs^.player.playerHunger <= 500
@@ -302,12 +308,8 @@ gsAdvanceTurn gs =
     player.playerOxygen %= max (-50) . min (gsMaximumOxygenLevel gs)
 
     -- Hunger tick
-    player.playerHunger -= 1
-
-    -- ...but don't increase hunger on surface. Player should have all the time
-    -- they need to buy their stuff.
-    when (gsIsOnSurface gs) $
-      player.playerHunger .= initialHungerLevel
+    unless (gsIsOnSurface gs) $
+      player.playerHunger -= 1
 
     gs <- get
     when (gs^.player.playerHunger <= 0) $ do
@@ -600,6 +602,7 @@ gmCurrentVendorCreature gs = runMaybeExcept $ do
 gmActiveMenuHandler :: GameState -> Maybe ItemMenuHandler
 gmActiveMenuHandler gs =
   ch Drop <|>
+  ch Eat <|>
   ch Inventory <|>
   ch Pickup <|>
   ch ContainerPutIn <|>
@@ -614,6 +617,7 @@ gmActiveMenu :: GameState -> Maybe ActiveMenuState
 gmActiveMenu gs =
   if | Inventory           `M.member` menus -> Just Inventory
      | Drop                `M.member` menus -> Just Drop
+     | Eat                 `M.member` menus -> Just Eat
      | Pickup              `M.member` menus -> Just Pickup
      | ContainerPutIn      `M.member` menus -> Just ContainerPutIn
      | ContainerTakeOut    `M.member` menus -> Just ContainerTakeOut
@@ -719,7 +723,7 @@ gmCurrentlySelectedSingleItem gs = do
 
   guard (not $ null items)
 
-  let menu_selection = fromMaybe 0 (gs^?activeMenuState.at (menuStateKey handler)._Just._1.singleSelection)
+  let menu_selection = fromMaybe 0 (gs^.to gmMenuCursor)
       max_selection = M.size gitems-1
       current_selection = max 0 $ min max_selection menu_selection
 
@@ -745,6 +749,13 @@ currentlySelectedSingleMenuItemLens menu_state item_get = to $ \gs -> do
 gmCurrentlySelectedSingleInventoryItem :: GameState -> Maybe Item
 gmCurrentlySelectedSingleInventoryItem gs =
   gs^.currentlySelectedSingleMenuItemLens Inventory (player.playerInventory)
+
+geEatItem :: Item -> GameState -> Failing GameState
+geEatItem item gs = do
+  guardE (not $ gsIsSatiated gs) "Too satiated to eat."
+  guardE (item `elem` (gs^.player.playerInventory)) "No item in inventory"
+  return $ gs & (player.playerInventory %~ delete item) .
+                (player.playerHunger +~ (itemNutrition item))
 
 geDropItem :: Item -> GameState -> Failing GameState
 geDropItem item gs = do
@@ -820,6 +831,17 @@ gePickUpItemByMenu gs = do
   go [] gs = pure gs
   go (item:rest) gs = gePickUpItem item gs >>= go rest
 
+geEatInventoryItemByMenu :: GameState -> Failing GameState
+geEatInventoryItemByMenu gs = do
+  guardE (gmActiveMenu gs == Just Eat) ""
+  items' <- addFail (gmCurrentlySelectedItems gs) "No currently selected items."
+  let edibles = filter isEdible items'
+  guardE (not $ null edibles) "No currently selected edible items."
+  guardE (length edibles == 1) "Cannot eat more than one edible at a time."
+
+  let [edible] = edibles
+  geEatItem edible gs <&> gsAddMessage ("Ate " <> itemName edible Singular <> ".")
+
 geDropInventoryItemByMenu :: GameState -> Failing GameState
 geDropInventoryItemByMenu gs = do
   guardE (gmActiveMenu gs == Just Drop) ""
@@ -850,9 +872,15 @@ defaultItemHandler key item_lens = ItemMenuHandler
   , prerequisites         = const True
   , menuFilter            = const True
   , quickEnterAction      = const Nothing
-  , otherKeys             = M.empty
+  , otherKeys             = const M.empty
   , toActiveMenuInventory = const []
   , itemLens              = item_lens }
+
+menuTransition :: GameState -> Char -> Text -> ActiveMenuState -> [(Char, Text)]
+menuTransition gs ch text ams =
+  if prerequisites (menuItemHandler ams) gs
+    then [(ch, text)]
+    else []
 
 menuItemHandler :: ActiveMenuState -> ItemMenuHandler
 menuItemHandler Inventory = (defaultItemHandler Inventory (player.playerInventory))
@@ -864,7 +892,20 @@ menuItemHandler Inventory = (defaultItemHandler Inventory (player.playerInventor
   , prerequisites = \gs -> not (gsInActiveMenu gs) &&
                            not (null $ gs^.player.playerInventory)
   , menuFilter = const True
-  , otherKeys = M.fromList [('d', "Drop items")] }
+  , otherKeys = \gs -> M.fromList $
+                  menuTransition gs 'd' "Drop items" Drop <>
+                  menuTransition gs 'e' "Eat" Eat
+  }
+
+menuItemHandler Eat = (defaultItemHandler Eat (player.playerInventory))
+  { triggerKeys = S.fromList "e"
+  , menuName = "Eat"
+  , offKeys = S.fromList "q"
+  , selectMode = SingleSelect
+  , menuKeys = M.fromList [('e', ("Eat", (^.to geEatInventoryItemByMenu)))]
+  , prerequisites = \gs -> gmActiveMenu gs == Just Inventory &&
+                           not (null $ filter isEdible $ gs^.player.playerInventory)
+  , menuFilter = isEdible }
 
 menuItemHandler Drop = (defaultItemHandler Drop (player.playerInventory))
   { triggerKeys = S.fromList "d"

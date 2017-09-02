@@ -4,6 +4,8 @@ module Submarination.Item
   ( Item(..)
   , Plural(..)
   , isItemBulky
+  , isEdible
+  , itemNutrition
   , itemName
   , itemDescription
   , itemPrice
@@ -191,4 +193,14 @@ storageBoxContents = prism' StorageBox $ \case
   StorageBox items -> Just items
   _ -> Nothing
 
+isEdible :: Item -> Bool
+isEdible = (> 0) . itemNutrition
+
+itemNutrition :: Item -> Int
+itemNutrition SardineTin = 50
+itemNutrition Chicken    = 300
+itemNutrition Potato     = 45
+itemNutrition Poylent    = 300
+itemNutrition Whiskey    = 10
+itemNutrition _          = 0
 

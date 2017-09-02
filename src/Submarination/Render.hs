@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 
+
 module Submarination.Render
   ( terminalRenderer
   , UpdateRequestState()
@@ -508,7 +509,7 @@ renderItemMenu item_handler = do
       Left err -> ([T.singleton $ toUpper ch], text <> " !" <> err <> "!", Warning)
       Right _  -> ([T.singleton $ toUpper ch], text, Okay)
 
-  otherInstructions = M.assocs (otherKeys item_handler) <&> \(ch, text) ->
+  otherInstructions gs = M.assocs (otherKeys item_handler gs) <&> \(ch, text) ->
     ([T.singleton $ toUpper ch], text, Okay)
 
   renderArrowedItem item = do
@@ -540,7 +541,7 @@ renderItemMenu item_handler = do
     gs <- gr identity
 
     appendText 4 1 Dull White Dull White ""
-    renderKeyInstructions ([(T.singleton <$> (toUpper <$> S.toList (offKeys item_handler)), "Cancel", Okay), (["SPACE"], "Select", Okay)] <> actionInstructions gs <> otherInstructions) 2
+    renderKeyInstructions ([(T.singleton <$> (toUpper <$> S.toList (offKeys item_handler)), "Cancel", Okay), (["SPACE"], "Select", Okay)] <> actionInstructions gs <> otherInstructions gs) 2
 
   singleOrNotSelectableSelectRender is_single gitems = do
     selection <- gr gmMenuCursor
@@ -559,9 +560,11 @@ renderItemMenu item_handler = do
 
     gs <- gr identity
 
-    unless is_single $ do
-      appendText 4 1 Dull White Dull White ""
-      renderKeyInstructions ([(["SPACE"], "Close", Okay)] <> actionInstructions gs <> otherInstructions) 4
+    if is_single
+      then do appendText 4 1 Dull White Dull White ""
+              renderKeyInstructions (actionInstructions gs <> otherInstructions gs) 4
+      else do appendText 4 1 Dull White Dull White ""
+              renderKeyInstructions ([(["SPACE"], "Close", Okay)] <> actionInstructions gs <> otherInstructions gs) 4
 
 data Usability
   = Warning
@@ -643,6 +646,7 @@ statusAppearance :: Status -> (ColorIntensity, Color, ColorIntensity, Color)
 statusAppearance Slow     = (Dull, Red, Dull, Black)
 statusAppearance Hungry   = (Dull, Red, Dull, Black)
 statusAppearance Starving = (Vivid, Red, Dull, Black)
+statusAppearance Satiated = (Vivid, Green, Dull, Black)
 
 renderStatuses :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderStatuses = do
