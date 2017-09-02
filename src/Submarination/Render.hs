@@ -212,7 +212,7 @@ renderCreatures = do
   V2 px py <- view $ glPlayer.playerPosition
   gs <- gr identity
 
-  lift $ for_ [V2 x y | x <- [0-losDistance..0+losDistance], y <- [0-losDistance..losDistance]] $ \(V2 rx ry) -> do
+  lift $ for_ [V2 x y | x <- [negate losDistance..losDistance], y <- [negate losDistance..losDistance]] $ \(V2 rx ry) -> do
     -- relative position
     let (cx, cy) = (rx+px, ry+py)
         (tx, ty) = ((+) rx *** (+) ry) mapMiddleOnTerminal

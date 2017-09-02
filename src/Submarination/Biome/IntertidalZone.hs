@@ -78,23 +78,23 @@ placeCreatures = execStateT $ do
       else randomAcceptableCreatureLocation action
 
   placeGators = replicateM_ 20 $
-    randomAcceptableCreatureLocation $ \pos -> do
+    randomAcceptableCreatureLocation $ \pos ->
       creatureAt pos .= Just Gator
 
   placeSnoatfish = replicateM_ 100 $
-    randomAcceptableCreatureLocation $ \pos -> do
+    randomAcceptableCreatureLocation $ \pos ->
       creatureAt pos .= Just Snoatfish
 
   placeBiddy = replicateM_ 50 $
-    randomAcceptableCreatureLocation $ \pos -> do
+    randomAcceptableCreatureLocation $ \pos ->
       creatureAt pos .= Just Biddy
 
   placeEnneapus = replicateM_ 10 $
-    randomAcceptableCreatureLocation $ \pos -> do
+    randomAcceptableCreatureLocation $ \pos ->
       creatureAt pos .= Just Enneapus
 
   placeCamobream = replicateM_ 15 $
-    randomAcceptableCreatureLocation $ \pos -> do
+    randomAcceptableCreatureLocation $ \pos ->
       creatureAt pos .= Just Camobream
 
   placeCorpseParty = randomAcceptableCreatureLocation $ actuallyPlaceCorpseParty (30 :: Int)

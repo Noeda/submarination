@@ -9,7 +9,6 @@ import Control.Monad.ST.Unsafe
 import Control.Monad.Trans.Class
 import Data.Word
 import Protolude
-import System.IO.Unsafe
 
 import Submarination.Random.Common
 
@@ -29,32 +28,33 @@ instance MonadTrans RandomSupplyT where
   lift = RandomSupplyT
   {-# INLINE lift #-}
 
+randomDoubleST :: (Double, Double) -> ST s Double
+randomDoubleST (mi, ma) = do
+  mr <- unsafeIOToST math_random
+  mr `seq` return ((mr*(ma-mi)) + mi)
+{-# INLINE randomDoubleST #-}
+
+randomIntST :: (Int, Int) -> ST s Int
+randomIntST (mi, ma') = do
+  let ma = ma'+1
+      mid = fromIntegral mi
+      mad = fromIntegral ma
+  mr <- unsafeIOToST math_random
+  mr `seq` return (max mi $ min ma' (floor $ mr * (mad-mid) + mid))
+{-# INLINE randomIntST #-}
+
 instance MonadRandomSupply (RandomSupplyT (StateT t (ST s))) where
-  randomDouble (mi, ma) = RandomSupplyT $ lift $ do
-    mr <- unsafeIOToST math_random
-    mr `seq` (return $ (mr*(ma-mi)) + mi)
+  randomDouble = RandomSupplyT . lift . randomDoubleST
   {-# INLINE randomDouble #-}
 
-  randomInt (mi, ma') = RandomSupplyT $ lift $ do
-    let ma = ma'+1
-        mid = fromIntegral mi
-        mad = fromIntegral ma
-    mr <- unsafeIOToST math_random
-    mr `seq` (return $ max mi $ min ma' (floor $ mr * (mad-mid) + mid))
+  randomInt = RandomSupplyT . lift . randomIntST
   {-# INLINE randomInt #-}
 
 instance MonadRandomSupply (RandomSupplyT (ST s)) where
-  randomDouble (mi, ma) = RandomSupplyT $ do
-    mr <- unsafeIOToST math_random
-    mr `seq` (return $ (mr*(ma-mi)) + mi)
+  randomDouble = RandomSupplyT . randomDoubleST
   {-# INLINE randomDouble #-}
 
-  randomInt (mi, ma') = RandomSupplyT $ do
-    let ma = ma'+1
-        mid = fromIntegral mi
-        mad = fromIntegral ma
-    mr <- unsafeIOToST math_random
-    mr `seq` (return $ max mi $ min ma' (floor $ mr * (mad-mid) + mid))
+  randomInt = RandomSupplyT . randomIntST
   {-# INLINE randomInt #-}
 
 instance MonadState s m => MonadState s (RandomSupplyT m) where
