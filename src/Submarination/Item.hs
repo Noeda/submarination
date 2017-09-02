@@ -19,6 +19,8 @@ import Data.Data
 import qualified Data.Map.Strict as M
 import Protolude
 
+import Submarination.Plural
+
 data Item
   = SardineTin
   | Poylent
@@ -41,11 +43,6 @@ data Item
   | WinchAndCable
   | HullParts
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
-
-data Plural
-  = Many
-  | Singular
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
 
 groupItems :: [Item] -> M.Map Item Int
 groupItems = foldr folder M.empty

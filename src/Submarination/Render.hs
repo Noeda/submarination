@@ -155,12 +155,14 @@ renderGameState' monotonic_time_ns = do
   lift $ mutateTerminalStateM $ do
     clear
 
-    let rendering = do unless in_active_menu $ do
-                         renderCurrentLevel monotonic_time_ns
-                         renderSub monotonic_time_ns
-                         renderCreatures
-                         renderPlayer
-                       renderHud monotonic_time_ns
+    let rendering = do creature_count <- if in_active_menu
+                         then return M.empty
+                         else do renderCurrentLevel monotonic_time_ns
+                                 renderSub monotonic_time_ns
+                                 creatures <- renderCreatures
+                                 renderPlayer
+                                 return creatures
+                       renderHud monotonic_time_ns creature_count
 
     if is_dead
       then runReaderT renderDeadScreen game_state
@@ -207,12 +209,12 @@ reverseAppearance :: Cell -> Cell
 reverseAppearance (Cell fintensity fcolor bintensity bcolor ch) =
   Cell bintensity bcolor fintensity fcolor ch
 
-renderCreatures :: GameMonadRoTerminal s ()
+renderCreatures :: GameMonadRoTerminal s (M.Map Creature Int)
 renderCreatures = do
   V2 px py <- view $ glPlayer.playerPosition
   gs <- gr identity
 
-  lift $ for_ [V2 x y | x <- [negate losDistance..losDistance], y <- [negate losDistance..losDistance]] $ \(V2 rx ry) -> do
+  lift $ flip execStateT M.empty $ for_ [V2 x y | x <- [negate losDistance..losDistance], y <- [negate losDistance..losDistance]] $ \(V2 rx ry) -> do
     -- relative position
     let (cx, cy) = (rx+px, ry+py)
         (tx, ty) = ((+) rx *** (+) ry) mapMiddleOnTerminal
@@ -220,8 +222,12 @@ renderCreatures = do
     case gs^.glCreatureAt (V2 cx cy) of
       Nothing -> return ()
       Just creature -> do
-        old_cell <- getCell' tx ty
-        setCell' tx ty (creatureToAppearance creature old_cell)
+        lift $ do
+          old_cell <- getCell' tx ty
+          setCell' tx ty (creatureToAppearance creature old_cell)
+
+        unless (isVendor creature) $
+          at creature %= \case Nothing -> Just 1; Just x -> Just (x+1)
 
 renderCurrentLevel :: Integer -> GameMonadRoTerminal s ()
 renderCurrentLevel monotonic_time_ns = do
@@ -432,8 +438,8 @@ appendWrappedText x skip max_width fintensity fcolor bintensity bcolor txt = do
 
   putSideY (y+height+skip)
 
-renderHud :: Integer -> GameMonadRoTerminal s ()
-renderHud monotonic_time_ns = do
+renderHud :: Integer -> M.Map Creature Int -> GameMonadRoTerminal s ()
+renderHud monotonic_time_ns creature_count = do
 
   -- The name of the section of submarine you are in
   player_pos <- gr (^.glPlayer.playerPosition)
@@ -475,7 +481,7 @@ renderHud monotonic_time_ns = do
   case maybe_item_menu_handler of
     Just item_menu_handler ->
       runVerticalBoxRender 1 2 (renderItemMenu item_menu_handler)
-    _ -> runVerticalBoxRender 1 6 renderAdditionalHud
+    _ -> runVerticalBoxRender 1 6 (renderAdditionalHud creature_count)
 
 renderItemMenu :: ItemMenuHandler -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderItemMenu item_handler = do
@@ -588,6 +594,27 @@ renderKeyInstructions insts original_x = go insts original_x
       appendText x 0 Vivid Green Dull Black last_key
       go2 [] (x+textWidth last_key)
 
+renderCreatureListing :: M.Map Creature Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
+renderCreatureListing creatures =
+  renderList (M.assocs creatures) $ \(creature, count) y -> do
+    lift $ lift $ setCell' 2 y (creatureToAppearance creature $ Cell Dull White Dull Black ' ')
+
+    if count == 1
+      then appendText 4 1 Dull White Dull Black $ creatureName creature Singular
+      else appendText 4 1 Dull White Dull Black $ show count <> " " <> creatureName creature Many
+
+renderList :: [a] -> (a -> Int -> VerticalBoxRender (GameMonadRoTerminal s) ()) -> VerticalBoxRender (GameMonadRoTerminal s) ()
+renderList lst fun = go lst (0 :: Int)
+ where
+  go [] _ = return ()
+  go (x:rest) num_items | num_items < 7 = do
+    y <- getSideY
+    fun x y
+    go rest (num_items+1)
+
+  go _ _ =
+    appendText 2 2 Dull White Dull Black "...and more"
+
 renderItemPileHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderItemPileHud = do
   player_pos <- gr (^.glPlayer.playerPosition)
@@ -685,8 +712,8 @@ renderDeadScreen = do
     void $ setWrappedText 2 4 60 Dull White Dull Black $ "Cause of death: " <> death_reason
     void $ setWrappedText 2 6 60 Dull White Dull Black $ "You survived for " <> show turn <> " turns."
 
-renderAdditionalHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
-renderAdditionalHud = do
+renderAdditionalHud :: M.Map Creature Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
+renderAdditionalHud creature_count = do
   -- Money only has purpose on surface at the moment
   on_surface <- gr gsIsOnSurface
 
@@ -729,6 +756,7 @@ renderAdditionalHud = do
   withSide LeftSide renderMessages
 
   renderInventorySummary 53
+  withSide LeftSide $ renderCreatureListing creature_count
   renderPossibleTriggerKeys
 
 -- | This is used for debugging level generation. It prints the level to the

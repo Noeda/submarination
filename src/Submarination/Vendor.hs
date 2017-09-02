@@ -1,6 +1,7 @@
 module Submarination.Vendor
   ( vendorDescription
-  , vendorItems )
+  , vendorItems
+  , isVendor )
   where
 
 import Protolude
@@ -37,4 +38,7 @@ vendorItems AmmoVendor =
 vendorItems MaterialVendor =
   [HullParts]
 vendorItems _ = []
+
+isVendor :: Creature -> Bool
+isVendor = not . null . vendorItems
 

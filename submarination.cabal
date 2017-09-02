@@ -28,6 +28,7 @@ library
                       Submarination.Key
                       Submarination.MonotonicClock
                       Submarination.Level
+                      Submarination.Plural
                       Submarination.Random
                       Submarination.Random.Common
                       Submarination.Render
