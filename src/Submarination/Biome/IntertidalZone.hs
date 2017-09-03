@@ -27,6 +27,7 @@ import Submarination.Direction
 import Submarination.Item
 import Submarination.Level
 import Submarination.Random
+import Submarination.Turn
 import Submarination.Voronoi
 
 intertidalZone :: Level
@@ -78,23 +79,23 @@ placeCreatures = execStateT $ do
 
   placeGators = replicateM_ 20 $
     randomAcceptableCreatureLocation $ \pos ->
-      creatureAt pos .= Just (fromType Gator)
+      creatureAt pos .= Just (creatureFromType Gator)
 
   placeSnoatfish = replicateM_ 100 $
     randomAcceptableCreatureLocation $ \pos ->
-      creatureAt pos .= Just (fromType Snoatfish)
+      creatureAt pos .= Just (creatureFromType Snoatfish)
 
   placeBiddy = replicateM_ 50 $
     randomAcceptableCreatureLocation $ \pos ->
-      creatureAt pos .= Just (fromType Biddy)
+      creatureAt pos .= Just (creatureFromType Biddy)
 
   placeEnneapus = replicateM_ 10 $
     randomAcceptableCreatureLocation $ \pos ->
-      creatureAt pos .= Just (fromType Enneapus)
+      creatureAt pos .= Just (creatureFromType Enneapus)
 
   placeCamobream = replicateM_ 15 $
     randomAcceptableCreatureLocation $ \pos ->
-      creatureAt pos .= Just (fromType Camobream)
+      creatureAt pos .= Just (creatureFromType Camobream)
 
   placeCorpseParty = randomAcceptableCreatureLocation $ actuallyPlaceCorpseParty (30 :: Int)
 
@@ -103,7 +104,7 @@ placeCreatures = execStateT $ do
     lvl <- get
     when (null (lvl^.itemsAt coords) && isWalkable (lvl^.cellAt coords)) $ do
       corpse <- randomOf $ V.fromList [WoundedCorpse, WoundedCorpse, WoundedCorpse, MutilatedCorpse, MutilatedCorpse, BloatedCorpse, PartiallyEatenCorpse, SkeletonCorpse, PlantPersonCorpse]
-      itemsAt coords .= [corpse]
+      itemsAt coords .= [itemFromType turn1 corpse]
       get >>= lift . placeBloodSpatter coords >>= put
 
     ncoords <- fmap round <$> randomV2Spherical 8

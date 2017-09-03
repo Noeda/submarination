@@ -4,7 +4,7 @@ module Submarination.Creature
   ( Creature(..)
   , CreatureType(..)
   , isAnimal
-  , fromType
+  , creatureFromType
   , setIndex
   , creatureName )
   where
@@ -22,9 +22,9 @@ data Creature = Creature
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 -- | Creature must be reindexed before put into game. This set index to 0.
-fromType :: CreatureType -> Creature
-fromType ctype = Creature { creatureIndex = invalidIndex
-                          , creatureType = ctype }
+creatureFromType :: CreatureType -> Creature
+creatureFromType ctype = Creature { creatureIndex = invalidIndex
+                                  , creatureType = ctype }
 
 data CreatureType
   = FoodVendor

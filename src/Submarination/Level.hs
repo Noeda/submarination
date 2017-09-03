@@ -33,6 +33,7 @@ import Protolude hiding ( (&) )
 
 import Submarination.Creature
 import Submarination.Item
+import Submarination.Turn
 
 data Level = Level
   { _defaultLevelCell    :: !LevelCell
@@ -43,7 +44,7 @@ data Level = Level
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 newtype LevelActiveMetadata
-  = HatchAutoClose Int
+  = HatchAutoClose Turn
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 data LevelCell

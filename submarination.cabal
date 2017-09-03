@@ -34,6 +34,7 @@ library
                       Submarination.Random.Common
                       Submarination.Render
                       Submarination.Sub
+                      Submarination.Turn
                       Submarination.Vendor
                       Submarination.Voronoi
                       Submarination.Terminal
@@ -62,6 +63,7 @@ library
                       ,containers
                       ,delaunay>=0.1.0.2
                       ,gitrev
+                      ,hashable
                       ,lens
                       ,linear
                       ,mtl

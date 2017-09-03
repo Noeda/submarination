@@ -59,6 +59,7 @@ import Submarination.Item
 import Submarination.Level
 import Submarination.Sub
 import Submarination.Terminal
+import Submarination.Turn
 
 data ActiveMenuState
   = Pickup
@@ -87,12 +88,12 @@ data GameState = GameState
   , _dead                :: Bool
   , _deathReason         :: Text
   , _depth               :: Int
-  , _turn                :: Int
-  , _inputTurn           :: Int
+  , _turn                :: Turn
+  , _inputTurn           :: Turn
   , _godMode             :: Bool
   , _runningIndex        :: Index
   , _levels              :: M.Map Int Level
-  , _messages            :: M.Map Int Text }
+  , _messages            :: M.Map Turn Text }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data Player = Player

@@ -109,6 +109,7 @@ module Submarination.GameState
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Control.Lens hiding ( Level, levels, Index )
+import Data.Hashable
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.List ( (!!), delete )
@@ -127,6 +128,7 @@ import Submarination.Item
 import Submarination.Level
 import Submarination.Random
 import Submarination.Sub
+import Submarination.Turn
 import Submarination.Vendor
 
 type GameMonad m = StateT GameState m
@@ -148,8 +150,8 @@ initialGameState = gsIndexUnindexedCreatures $ GameState
   , _dead            = False
   , _deathReason     = "Spontaneous death"
   , _vendorMenu      = Nothing
-  , _turn = 1
-  , _inputTurn = 1
+  , _turn = turn1
+  , _inputTurn = turn1
   , _runningIndex = firstIndex
   , _godMode = False
   , _levels = M.fromList
@@ -172,7 +174,7 @@ initialGameState = gsIndexUnindexedCreatures $ GameState
            ,standardRoom])
         airLock
 
-  placeStorageBox = subItemsP (V2 6 1) .~ [StorageBox []]
+  placeStorageBox = subItemsP (V2 6 1) .~ [itemFromType turn1 $ StorageBox []]
 
 initialHungerLevel :: Int
 initialHungerLevel = 800
@@ -240,7 +242,7 @@ gsIsStarving gs = gs^.player.playerHunger <= 150
 glCurrentVendorMenuSelection :: Lens' GameState (Maybe Int)
 glCurrentVendorMenuSelection = vendorMenu
 
-gsCurrentVendorItemSelection :: GameState -> Maybe Item
+gsCurrentVendorItemSelection :: GameState -> Maybe ItemType
 gsCurrentVendorItemSelection gs = do
   vendor <- gmCurrentVendorCreature gs
   current_selection' <- gs^.glCurrentVendorMenuSelection
@@ -263,14 +265,14 @@ gr action = do
   return $ action $ env^.gameState
 {-# INLINE gr #-}
 
-gsTurn :: GameState -> Int
+gsTurn :: GameState -> Turn
 gsTurn gs = gs^.turn
 
 gsAdvanceInputTurn :: GameState -> GameState
-gsAdvanceInputTurn = inputTurn +~ 1
+gsAdvanceInputTurn = inputTurn %~ nextTurn
 
 gsRetractInputTurn :: GameState -> GameState
-gsRetractInputTurn = inputTurn -~ 1
+gsRetractInputTurn = inputTurn %~ previousTurn
 
 gsIsSubLocation :: V2 Int -> GameState -> Bool
 gsIsSubLocation pos gs =
@@ -299,11 +301,11 @@ gsDeathCheck death_reason gs =
 gsAdvanceTurn :: GameState -> GameState
 gsAdvanceTurn gs | gs^.dead = gs
 gsAdvanceTurn gs =
-  runST $ flip execStateT gs $ runWithRandomSupply (fromIntegral $ gs^.turn) go
+  runST $ flip execStateT gs $ runWithRandomSupply (fromIntegral $ hash $ gs^.turn) go
  where
   go :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
   go = do
-    turn += 1
+    turn %= nextTurn
 
     godModeCheck
 
@@ -462,7 +464,7 @@ gmMoveToDirection direction gs = flip evalState gs $ runMaybeT $ do
     current_turn <- use turn
 
     glCellAt new_playerpos .= OpenHatch
-    glActiveMetadataAt new_playerpos .= (Just $ HatchAutoClose (current_turn+5))
+    glActiveMetadataAt new_playerpos .= (Just $ HatchAutoClose (nextNTurn 5 current_turn))
     identity %= gsAdvanceTurn
 
   notHatch new_playerpos = do
@@ -521,10 +523,10 @@ surfaceLevel = levelFromStringsPlacements SurfaceWater placements
   ,"#######################################################"]
  where
   placements =
-    [(1, ('g', placeCreature $ fromType FoodVendor))
-    ,(2, ('g', placeCreature $ fromType AmmoVendor))
-    ,(3, ('g', placeCreature $ fromType ToolVendor))
-    ,(4, ('g', placeCreature $ fromType MaterialVendor))]
+    [(1, ('g', placeCreature $ creatureFromType FoodVendor))
+    ,(2, ('g', placeCreature $ creatureFromType AmmoVendor))
+    ,(3, ('g', placeCreature $ creatureFromType ToolVendor))
+    ,(4, ('g', placeCreature $ creatureFromType MaterialVendor))]
 
 gsMaximumOxygenLevel :: GameState -> Int
 gsMaximumOxygenLevel _ = 100
@@ -588,8 +590,10 @@ gmAddItemInventory item gs = toMaybe $ geAddItemInventory item gs
 
 gmAttemptPurchase :: GameState -> Maybe GameState
 gmAttemptPurchase gs = do
-  item_selection <- gsCurrentVendorItemSelection gs
-  let playerpos = gs^.player.playerPosition
+  item_type_selection <- gsCurrentVendorItemSelection gs
+  let curturn = gs^.turn
+      item_selection = itemFromType curturn item_type_selection
+      playerpos = gs^.player.playerPosition
       shells = gs^.player.playerShells
 
   guard (shells >= itemPrice item_selection)

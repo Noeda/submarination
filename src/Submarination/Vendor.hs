@@ -20,7 +20,7 @@ vendorDescription MaterialVendor =
   "YOU THERE! Buy our wondrous materials. We may not have a great variety but you can be sure all our materials are very wondrous."
 vendorDescription _ = ""
 
-vendorItems :: CreatureType -> [Item]
+vendorItems :: CreatureType -> [ItemType]
 vendorItems FoodVendor =
   [SardineTin
   ,Poylent

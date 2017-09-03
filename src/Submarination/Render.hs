@@ -184,27 +184,29 @@ creatureToAppearance creature (Cell fintensity fcolor bintensity bcolor _) = cas
   Gator          -> Cell Dull Green  Dull Black  'G'
 
 itemToAppearance :: Item -> Cell
-itemToAppearance SardineTin           = Cell Dull Cyan Dull Black '%'
-itemToAppearance Poylent              = Cell Vivid Cyan Dull Black '%'
-itemToAppearance Chicken              = Cell Vivid Red Dull Black '%'
-itemToAppearance Potato               = Cell Vivid Yellow Dull Black '%'
-itemToAppearance Whiskey              = Cell Dull Yellow Dull Black '!'
-itemToAppearance Freezer{}            = Cell Vivid Cyan Dull Black '■'
-itemToAppearance Refrigerator{}       = Cell Dull Cyan Dull Black '■'
-itemToAppearance Microwave{}          = Cell Vivid White Dull Black '■'
-itemToAppearance (StorageBox [])      = Cell Dull White Dull Black '±'
-itemToAppearance StorageBox{}         = Cell Dull White Dull Black '≡'
-itemToAppearance WoundedCorpse        = Cell Vivid White Dull Red '@'
-itemToAppearance MutilatedCorpse      = Cell Vivid White Dull Red '@'
-itemToAppearance BloatedCorpse        = Cell Vivid Green Dull Red '@'
-itemToAppearance PartiallyEatenCorpse = Cell Vivid Green Dull Red '%'
-itemToAppearance SkeletonCorpse       = Cell Dull White Vivid Black '@'
-itemToAppearance PlantPersonCorpse    = Cell Dull Green Dull Red 'P'
-itemToAppearance HullParts            = Cell Dull Yellow Dull Black '['
-itemToAppearance Explosives           = Cell Vivid Red Dull Black '≡'
-itemToAppearance Taser                = Cell Vivid Blue Dull Black '('
-itemToAppearance Harpoon              = Cell Dull White Dull Black '('
-itemToAppearance WinchAndCable        = Cell Vivid Yellow Dull Black ']'
+itemToAppearance item = go $ item^.itemType
+ where
+  go SardineTin           = Cell Dull Cyan Dull Black '%'
+  go Poylent              = Cell Vivid Cyan Dull Black '%'
+  go Chicken              = Cell Vivid Red Dull Black '%'
+  go Potato               = Cell Vivid Yellow Dull Black '%'
+  go Whiskey              = Cell Dull Yellow Dull Black '!'
+  go Freezer{}            = Cell Vivid Cyan Dull Black '■'
+  go Refrigerator{}       = Cell Dull Cyan Dull Black '■'
+  go Microwave{}          = Cell Vivid White Dull Black '■'
+  go (StorageBox [])      = Cell Dull White Dull Black '±'
+  go StorageBox{}         = Cell Dull White Dull Black '≡'
+  go WoundedCorpse        = Cell Vivid White Dull Red '@'
+  go MutilatedCorpse      = Cell Vivid White Dull Red '@'
+  go BloatedCorpse        = Cell Vivid Green Dull Red '@'
+  go PartiallyEatenCorpse = Cell Vivid Green Dull Red '%'
+  go SkeletonCorpse       = Cell Dull White Vivid Black '@'
+  go PlantPersonCorpse    = Cell Dull Green Dull Red 'P'
+  go HullParts            = Cell Dull Yellow Dull Black '['
+  go Explosives           = Cell Vivid Red Dull Black '≡'
+  go Taser                = Cell Vivid Blue Dull Black '('
+  go Harpoon              = Cell Dull White Dull Black '('
+  go WinchAndCable        = Cell Vivid Yellow Dull Black ']'
 
 reverseAppearance :: Cell -> Cell
 reverseAppearance (Cell fintensity fcolor bintensity bcolor ch) =
@@ -746,12 +748,15 @@ renderAdditionalHud creature_count = do
   renderDragging
   renderItemPileHud
 
+  curturn <- gr gsTurn
+
   when on_surface $ withSide LeftSide $ ((,) <$> gr gmCurrentVendorCreature <*> gr (^.glCurrentVendorMenuSelection)) >>= \case
     (Just vendor, Just menu_selection) -> do
       let desc = vendorDescription $ creatureType vendor
       _ <- appendWrappedText 3 2 25 Dull White Dull Black desc
 
-      for_ (zip (vendorItems $ creatureType vendor) [0..]) $ \(item, selection_num) -> do
+      for_ (zip (vendorItems $ creatureType vendor) [0..]) $ \(itemtype, selection_num) -> do
+        let item = itemFromType curturn itemtype
         if selection_num == menu_selection
           then do appendText 2 0 Vivid Green Dull Black "➔"
                   appendText 4 0 Vivid Blue Dull Black (itemName item Singular)
