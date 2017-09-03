@@ -804,20 +804,18 @@ gePutInItemsByMenu gs = do
  where
   go [] gs = pure gs
   go (item:rest) gs = do
-    old_contents <- toFailing $ firstOf (gllAtPlayer glBulkyItemAt._Just.itemContents) gs
-    item_limit <- toFailing $ gs^?gllAtPlayer glBulkyItemAt._Just.to itemStorageLimit
-    guardE (length old_contents < item_limit) "Container full"
+    container <- toFailing $ gs^.gllAtPlayer glBulkyItemAt
+    new_container <- putItem (gs^.turn) item container
 
     let new_gs = gs & (player.playerInventory %~ delete item) .
-                       (gllAtPlayer glBulkyItemAt._Just.itemContents %~ (:) item)
-
+                      (gllAtPlayer glBulkyItemAt .~ Just new_container)
      in go rest new_gs
 
 geTakeOutItemsByMenu :: GameState -> Failing GameState
 geTakeOutItemsByMenu gs = do
   guardE (gmActiveMenu gs == Just ContainerTakeOut) ""
   items <- toFailing $ gmCurrentlySelectedItems gs
-  
+
   go items gs <&> gsAddMessage (case items of
     [single_item] -> "Took out " <> itemName single_item Singular <> "."
     [] -> ""
@@ -825,14 +823,10 @@ geTakeOutItemsByMenu gs = do
  where
   go [] gs = pure gs
   go (item:rest) gs' = do
-    gs <- geAddItemInventory item gs'
-
-    let old_storage = fromMaybe [] $ gs^?gllAtPlayer glBulkyItemAt._Just.itemContents
-        new_storage = delete item old_storage
-
-    guardE (new_storage /= old_storage) ""
-
-    go rest $ gs & gllAtPlayer glBulkyItemAt._Just.itemContents .~ new_storage
+    container <- toFailing $ gs^.gllAtPlayer glBulkyItemAt
+    (new_container, removed_item) <- removeItem (gs'^.turn) item container
+    gs <- geAddItemInventory removed_item gs'
+    go rest $ gs & gllAtPlayer glBulkyItemAt .~ Just new_container
 
 gmPickUpItem :: Item -> GameState -> Maybe GameState
 gmPickUpItem item gs = toMaybe $ gePickUpItem item gs

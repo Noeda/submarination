@@ -1,6 +1,8 @@
 module Submarination.Turn
   ( Turn()
   , turn1
+  , turnToInt
+  , intToTurn
   , nextTurn
   , nextNTurn
   , previousTurn )
@@ -10,9 +12,13 @@ import Data.Binary
 import Data.Data
 import Data.Hashable
 import Protolude
+import Test.QuickCheck
 
 newtype Turn = Turn Int
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary, Num, Integral, Real, Enum )
+
+instance Arbitrary Turn where
+  arbitrary = Turn . abs <$> arbitrary
 
 instance Hashable Turn where
   hashWithSalt salt (Turn int) = hashWithSalt salt int
@@ -29,4 +35,10 @@ nextNTurn n (Turn x) = Turn $ x+n
 
 previousTurn :: Turn -> Turn
 previousTurn (Turn x) = Turn $ x-1
+
+turnToInt :: Turn -> Int
+turnToInt (Turn x) = x
+
+intToTurn :: Int -> Turn
+intToTurn x = Turn x
 

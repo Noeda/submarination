@@ -41,6 +41,9 @@ main = shakeArgsWith shakeOptions{shakeFiles="_build", shakeThreads=2} flags $ \
     removeFilesAfter "." buildableLevels
     removeFilesAfter "_build" ["//*"]
 
+  phony "test" $ do
+    () <- cmd "stack test"
+    return ()
 
   phony "deploy" $ do
     bucket <- fromMaybe (error "SUBMARINATION_BUCKET must be defined (env)") <$> getEnv "SUBMARINATION_BUCKET"

@@ -14,26 +14,39 @@ module Submarination.Item
   , itemPrice
   , itemContents
   , itemStorageLimit
-  , groupItems )
+  , groupItems
+  , putItem
+  , removeItem
+  , isSpoiled
+
+  , tests )
   where
 
 import Control.Lens
 import Data.Binary
 import Data.Data
+import qualified Data.IntMap as IM
+import Data.List ( delete )
 import qualified Data.Map.Strict as M
-import Protolude hiding ( (&) )
+import Protolude hiding ( (&), to )
 
 import Submarination.Plural
 import Submarination.Turn
+import Test.Framework
+import Test.Framework.Providers.QuickCheck2
+import Test.QuickCheck
 
 data Item = Item
-  { _itemType           :: !ItemType
-  , _creationTurn       :: !Turn
-  , _refrigerated       :: !(Maybe Turn)
-  , _unrefrigerated     :: !(Maybe Turn)
-  , _frozen             :: !(Maybe Turn)
-  , _unfrozen           :: !(Maybe Turn) }
+  { _itemType            :: !ItemType
+  , _creationTurn        :: !Turn
+  , _frozenHistory       :: !(IM.IntMap QuotientState)
+  , _refrigeratedHistory :: !(IM.IntMap QuotientState) }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
+
+data QuotientState
+  = NotFrozen
+  | Frozen
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum, Binary )
 
 data ItemType
   = SardineTin
@@ -57,13 +70,66 @@ data ItemType
   | WinchAndCable
   | HullParts
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
+makeLenses ''Item
 
-itemType :: Lens' Item ItemType
-itemType = lens get_it set_it
+itemArbitrary :: Int -> Gen Item
+itemArbitrary tree_division = do
+  itype <- itemTypeArbitrary tree_division
+  cturn <- arbitrary :: Gen Turn
+  let cturn' = turnToInt cturn
+
+  fhist <- IM.mapKeys ((+cturn') . abs) <$> arbitrary
+  rhist <- IM.mapKeys ((+cturn') . abs) <$> arbitrary
+
+  return Item
+    { _itemType            = itype
+    , _creationTurn        = cturn
+    , _frozenHistory       = fhist
+    , _refrigeratedHistory = rhist }
+
+instance Arbitrary QuotientState where
+  arbitrary = oneof $ pure <$> [Frozen, NotFrozen]
+
+instance Arbitrary Item where
+  arbitrary = itemArbitrary 1
+
+itemTypeArbitrary :: Int -> Gen ItemType
+itemTypeArbitrary tree_division =
+  oneof [pure SardineTin
+        ,pure Poylent
+        ,pure Chicken
+        ,pure Potato
+        ,Freezer <$> itemsArbitrary
+        ,Refrigerator <$> itemsArbitrary
+        ,Microwave <$> itemsArbitrary
+        ,pure Whiskey
+        ,StorageBox <$> itemsArbitrary
+        ,pure WoundedCorpse
+        ,pure MutilatedCorpse
+        ,pure BloatedCorpse
+        ,pure PartiallyEatenCorpse
+        ,pure SkeletonCorpse
+        ,pure PlantPersonCorpse
+        ,pure Explosives
+        ,pure Taser
+        ,pure Harpoon
+        ,pure WinchAndCable
+        ,pure HullParts]
  where
-  get_it = _itemType
-  set_it item new_it = item { _itemType = new_it }
-{-# INLINEABLE itemType #-}
+  itemsArbitrary = scale (`div` tree_division) $ listOf $ itemArbitrary (tree_division+1)
+
+instance Arbitrary ItemType where
+  arbitrary = itemTypeArbitrary 1
+
+  shrink item | items <- item^.itemTypeContents, not (null items) =
+    let nitems = length items
+        sitems = fmap shrink items
+     in [(item & itemTypeContents .~ [])
+        ,(item & itemTypeContents .~ (take (nitems `div` 2) items))
+        ,(item & itemTypeContents .~ (drop (max 1 $ nitems `div` 2) items))] <>
+        fmap (\sitem_set -> item & itemTypeContents .~ sitem_set) sitems
+
+  shrink _ = []
 
 groupItems :: Ord a => [a] -> M.Map a Int
 groupItems = foldr folder M.empty
@@ -71,6 +137,9 @@ groupItems = foldr folder M.empty
   folder = M.alter (\case
     Nothing -> Just 1
     Just x  -> Just (x+1))
+
+ungroupItems :: Ord a => M.Map a Int -> [a]
+ungroupItems = concatMap (\(key, value) -> replicate value key) . M.assocs
 
 itemName :: Item -> Plural -> Text
 itemName item plural = go (item^.itemType) plural
@@ -210,15 +279,19 @@ isItemBulky item = go $ item^.itemType
   go PlantPersonCorpse{} = True
   go _ = False
 
-itemContents :: Traversal' Item [Item]
-itemContents fun item =
-  (\new_itemtype -> item & itemType .~ new_itemtype) <$> go (item^.itemType)
+itemTypeContents :: Traversal' ItemType [Item]
+itemTypeContents fun = go
  where
   go (StorageBox items)   = StorageBox <$> fun items
   go (Freezer items)      = Freezer <$> fun items
   go (Refrigerator items) = Refrigerator <$> fun items
   go (Microwave items)    = Microwave <$> fun items
   go x = pure x
+
+itemContents :: Traversal' Item [Item]
+itemContents fun item =
+  (\new_itemtype -> item & itemType .~ new_itemtype) <$>
+  forOf itemTypeContents (item^.itemType) fun
 
 isEdible :: Item -> Bool
 isEdible = (> 0) . itemNutrition
@@ -236,8 +309,137 @@ itemFromType :: Turn -> ItemType -> Item
 itemFromType turn itype = Item
   { _itemType = itype
   , _creationTurn = turn
-  , _refrigerated = Nothing
-  , _unrefrigerated = Nothing
-  , _frozen = Nothing
-  , _unfrozen = Nothing }
+  , _refrigeratedHistory = IM.empty
+  , _frozenHistory = IM.empty }
+
+canonicalizeFrozenHistory :: Lens' Item (IM.IntMap QuotientState) -> Item -> Turn -> Item
+canonicalizeFrozenHistory frozen item (turnToInt -> turn) =
+  case current_state of
+    (NotFrozen, latest_turn) | latest_turn <= turnToInt (item^.creationTurn) ->
+      item & (frozen .~ IM.empty)
+    (Frozen, latest_turn) | latest_turn <= turnToInt (item^.creationTurn) ->
+      item & (frozen .~ IM.singleton (turnToInt $ item^.creationTurn) Frozen)
+    (NotFrozen, latest_turn) ->
+      let turns_frozen = (turn - turnToInt (item^.creationTurn)) - rt_quotient
+       in item & (frozen .~ IM.fromList [(latest_turn-turns_frozen, Frozen)
+                                        ,(latest_turn, NotFrozen)])
+    (Frozen, _latest_turn) ->
+      let turns_frozen = (turn - turnToInt (item^.creationTurn)) - rt_quotient
+       in item & (frozen .~ IM.singleton (turn-turns_frozen) Frozen)
+ where
+  rt_quotient = getQuotientInRT (^.frozen) (intToTurn turn) item
+
+  current_state = case IM.maxViewWithKey (item^.frozen) of
+    Just ((turn, state), _) -> (state, turn)
+    Nothing                 -> (NotFrozen, turnToInt $ item^.creationTurn)
+
+getQuotientInRT :: (Item -> IM.IntMap QuotientState) -> Turn -> Item -> Int
+getQuotientInRT getfrozen (turnToInt -> turn) item =
+  go frozen NotFrozen (turnToInt $ item^.creationTurn) 0
+ where
+  frozen = getfrozen item
+
+  go frozen state last_state_change turns_in_room_temperature =
+    case IM.minViewWithKey frozen of
+      Just ((turn, Frozen), rest) ->
+        go rest Frozen turn (tir_increment turn)
+      Just ((turn, NotFrozen), rest) ->
+        go rest NotFrozen turn (tir_increment turn)
+      Nothing -> tir_increment turn
+   where
+    tir_increment turn = case state of
+      NotFrozen -> turns_in_room_temperature + (turn - last_state_change)
+      Frozen    -> turns_in_room_temperature
+
+unfrozenQuotient :: Turn -> Item -> Int
+unfrozenQuotient = getQuotientInRT (^.frozenHistory)
+
+unrefrigeratedQuotient :: Turn -> Item -> Int
+unrefrigeratedQuotient = getQuotientInRT (^.refrigeratedHistory)
+
+isSpoiled :: Turn -> Item -> Bool
+isSpoiled turn item = case item^.itemType of
+  Chicken ->
+    age - frozen_quotient - (refrigerated_quotient - refrigerated_quotient `div` 10) > 500
+  _ -> False
+ where
+  age = turnToInt $ turn - item^.creationTurn
+  frozen_quotient         = age-unfrozen_quotient
+  unfrozen_quotient       = unfrozenQuotient turn item
+  refrigerated_quotient   = age-unrefrigerated_quotient
+  unrefrigerated_quotient = unrefrigeratedQuotient turn item
+
+removeItem :: Turn -> Item -> Item -> Either Text (Item, Item)
+removeItem turn item container =
+  case firstOf itemContents container of
+    Nothing -> Left "Not a container"
+    Just old_items | item `elem` old_items -> Right
+      (container & itemContents %~ delete item, remove_item)
+    Just _ -> Left "Item not in the container."
+ where
+  remove_item = case container^.itemType of
+    Freezer{}      -> canonicalizeFrozenHistory frozenHistory (unfreezeItem turn item) turn
+    Refrigerator{} -> canonicalizeFrozenHistory refrigeratedHistory (unrefrigerateItem turn item) turn
+    _ -> item
+
+putItem :: Turn -> Item -> Item -> Either Text Item
+putItem turn item container =
+  case firstOf itemContents container of
+    Nothing -> Left "Not a container"
+    Just old_items | length old_items >= itemStorageLimit item
+      -> Left "Container full"
+    Just{} ->
+      Right $ container & itemContents %~ \old_items -> insert_item:old_items
+ where
+  insert_item = case container^.itemType of
+    Freezer{}      -> canonicalizeFrozenHistory frozenHistory (freezeItem turn item) turn
+    Refrigerator{} -> canonicalizeFrozenHistory refrigeratedHistory (refrigerateItem turn item) turn
+
+    _ -> item
+
+freezeItem :: Turn -> Item -> Item
+freezeItem turn =
+  frozenHistory %~ IM.insert (turnToInt turn) Frozen
+
+unfreezeItem :: Turn -> Item -> Item
+unfreezeItem turn =
+  frozenHistory %~ IM.insert (turnToInt turn) NotFrozen
+
+refrigerateItem :: Turn -> Item -> Item
+refrigerateItem turn =
+  refrigeratedHistory %~ IM.insert (turnToInt turn) Frozen
+
+unrefrigerateItem :: Turn -> Item -> Item
+unrefrigerateItem turn =
+  refrigeratedHistory %~ IM.insert (turnToInt turn) NotFrozen
+
+tests :: [Test]
+tests =
+  [testProperty "groupItems is reversible" testGroupItemsReversible
+  ,testProperty "canonicalized frozen history" testCanonicalizedFrozenHistory
+  ,testProperty "canonicalized refrigerated history" testCanonicalizedRefrigeratedHistory
+  ,testProperty "chicken spoilage" testChickenSpoilage]
+
+testChickenSpoilage :: Bool
+testChickenSpoilage =
+  let chicken = itemFromType (intToTurn 100) Chicken
+   in isSpoiled (intToTurn 100) chicken == False &&
+      isSpoiled (intToTurn 200) chicken == False &&
+      isSpoiled (intToTurn 10000) chicken == True
+
+testGroupItemsReversible :: [Item] -> Bool
+testGroupItemsReversible items =
+  ungroupItems (groupItems items) == sort items
+
+testCanonicalizedFrozenHistory :: Item -> Turn -> Bool
+testCanonicalizedFrozenHistory item turn' =
+  let max_turn = maximum $ (item^.creationTurn):(fmap intToTurn $ IM.keys $ item^.frozenHistory)
+      turn = turn' + max_turn
+   in unfrozenQuotient turn item == unfrozenQuotient turn (canonicalizeFrozenHistory frozenHistory item turn)
+
+testCanonicalizedRefrigeratedHistory :: Item -> Turn -> Bool
+testCanonicalizedRefrigeratedHistory item turn' =
+  let max_turn = maximum $ (item^.creationTurn):(fmap intToTurn $ IM.keys $ item^.refrigeratedHistory)
+      turn = turn' + max_turn
+   in unfrozenQuotient turn item == unfrozenQuotient turn (canonicalizeFrozenHistory refrigeratedHistory item turn)
 

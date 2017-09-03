@@ -71,6 +71,9 @@ library
                       ,primitive>=0.6.1.0
                       ,protolude
                       ,stm
+                      ,QuickCheck
+                      ,test-framework
+                      ,test-framework-quickcheck2
                       ,text
                       ,transformers
                       ,vector
@@ -101,6 +104,34 @@ executable submarination
                       ,submarination
                       ,protolude
   hs-source-dirs:      exe
+  ghc-options:         -Wall -fno-warn-name-shadowing -rtsopts -threaded
+  default-language:    Haskell2010
+  default-extensions:  GeneralizedNewtypeDeriving
+                       MultiParamTypeClasses
+                       UndecidableInstances
+                       ScopedTypeVariables
+                       DeriveDataTypeable
+                       FlexibleInstances
+                       NoImplicitPrelude
+                       OverloadedStrings
+                       FlexibleContexts
+                       TemplateHaskell
+                       DeriveGeneric
+                       BangPatterns
+                       ViewPatterns
+                       LambdaCase
+                       MultiWayIf
+                       RankNTypes
+
+test-suite submarination-tests
+  type:                exitcode-stdio-1.0
+  main-is:             Main.hs
+  build-depends:       base >=4.9 && <5.0
+                      ,submarination
+                      ,protolude
+                      ,test-framework
+                      ,test-framework-quickcheck2
+  hs-source-dirs:      tests
   ghc-options:         -Wall -fno-warn-name-shadowing -rtsopts -threaded
   default-language:    Haskell2010
   default-extensions:  GeneralizedNewtypeDeriving
