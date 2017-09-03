@@ -18,6 +18,7 @@ module Submarination.GameState.Types
   , subTopology
   , subPosition
   , subDiving
+  , subEnergy
   , Player(..)
   , playerPosition
   , playerMaximumHealth
@@ -72,7 +73,8 @@ data ActiveMenuState
 data Sub = Sub
   { _subTopology :: !SubTopology
   , _subPosition :: !(V2 Int)
-  , _subDiving   :: !Bool }
+  , _subDiving   :: !Bool
+  , _subEnergy   :: !Int }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
 
 data GameState = GameState

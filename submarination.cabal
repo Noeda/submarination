@@ -24,6 +24,7 @@ library
                       Submarination.Direction
                       Submarination.GameState
                       Submarination.GameState.Types
+                      Submarination.Index
                       Submarination.Item
                       Submarination.Key
                       Submarination.MonotonicClock
@@ -72,7 +73,7 @@ library
                       ,transformers
                       ,vector
   hs-source-dirs:      src
-  ghc-options:         -Wall -fno-warn-name-shadowing -O2
+  ghc-options:         -Wall -fno-warn-name-shadowing
   default-language:    Haskell2010
   c-sources:           cbits/terminal.c
   default-extensions:  GeneralizedNewtypeDeriving
@@ -98,7 +99,7 @@ executable submarination
                       ,submarination
                       ,protolude
   hs-source-dirs:      exe
-  ghc-options:         -Wall -fno-warn-name-shadowing -rtsopts -threaded -O2
+  ghc-options:         -Wall -fno-warn-name-shadowing -rtsopts -threaded
   default-language:    Haskell2010
   default-extensions:  GeneralizedNewtypeDeriving
                        MultiParamTypeClasses

@@ -67,6 +67,8 @@ module Submarination.GameState
   , glSub
   , subPosition
   , subTopology
+  , subEnergy
+  , subMaxEnergy
   , gsIsSubLocation
   , gsPlayerIsInsideSub
   , geStartDiving
@@ -156,7 +158,8 @@ initialGameState = gsIndexUnindexedCreatures $ GameState
   , _messages = M.empty
   , _sub = Sub { _subPosition = V2 23 (-2)
                , _subTopology = initial_sub_topo
-               , _subDiving   = False }
+               , _subDiving   = False
+               , _subEnergy   = 100 }
   , _depth  = 0 }
  where
   initial_sub_topo =
@@ -173,6 +176,9 @@ initialGameState = gsIndexUnindexedCreatures $ GameState
 
 initialHungerLevel :: Int
 initialHungerLevel = 800
+
+subMaxEnergy :: Sub -> Int
+subMaxEnergy _ = 100
 
 glSub :: Lens' GameState Sub
 glSub = sub
@@ -279,7 +285,9 @@ gsPlayerIsInsideSub gs =
 geStartDiving :: GameState -> Failing GameState
 geStartDiving gs = do
   guardE (gsPlayerIsInsideSub gs) "You are not inside submarine."
-  return $ gs & sub.subDiving .~ True
+  guardE (gs^.sub.subEnergy >= 15) "Not enough energy."
+  return $ gs & (sub.subDiving .~ True) .
+                (sub.subEnergy -~ 15)
 
 gsDeathCheck :: Text -> GameState -> GameState
 gsDeathCheck death_reason gs =

@@ -480,6 +480,14 @@ renderHud monotonic_time_ns creature_count = do
     then renderBar "O₂: " oxygen max_oxygen 53 4 Vivid Cyan Dull Blue monotonic_time_ns ""
     else renderBar "O₂: " oxygen max_oxygen 53 4 Vivid Cyan Dull Blue monotonic_time_ns "!"
 
+  in_sub <- gr (^.to gsPlayerIsInsideSub)
+  hud_y <- if in_sub
+    then do power <- gr (^.glSub.subEnergy)
+            max_power <- gr (^.glSub.to subMaxEnergy)
+            renderBar "E:  " power max_power 53 6 Vivid Green Dull Green monotonic_time_ns ""
+            return 8
+    else return 6
+
   renderTurn
 
   maybe_item_menu_handler <- gr gmActiveMenuHandler
@@ -487,7 +495,7 @@ renderHud monotonic_time_ns creature_count = do
   case maybe_item_menu_handler of
     Just item_menu_handler ->
       runVerticalBoxRender 1 2 (renderItemMenu item_menu_handler)
-    _ -> runVerticalBoxRender 1 6 (renderAdditionalHud creature_count)
+    _ -> runVerticalBoxRender 1 hud_y (renderAdditionalHud creature_count)
 
 renderItemMenu :: ItemMenuHandler -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderItemMenu item_handler = do
