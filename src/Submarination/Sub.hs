@@ -69,8 +69,8 @@ removeNonAirLockDoors topo = flip execState topo $
  where
   V2 w h = subSize topo
 
-subLevelsWithOffset :: Traversal SubTopology SubTopology (Level, V2 Int) Level
-subLevelsWithOffset action topo = go topo identity
+subLevelsWithOffset :: V2 Int -> Traversal SubTopology SubTopology (Level, V2 Int) Level
+subLevelsWithOffset initial_offset action topo = go topo (+ initial_offset)
  where
   go (Rotate90 topo) offset = Rotate90 <$> go topo (\(V2 x y) -> offset $ V2 y x)
   go (StandardRoom lvl) offset = StandardRoom <$> action (lvl, offset $ V2 0 0)

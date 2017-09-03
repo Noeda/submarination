@@ -2,11 +2,10 @@
 
 module Submarination.Creature
   ( Creature(..)
-  , foodVendor
-  , ammoVendor
-  , toolVendor
-  , materialVendor
+  , CreatureType(..)
   , isAnimal
+  , fromType
+  , setIndex
   , creatureName )
   where
 
@@ -14,9 +13,20 @@ import Data.Binary
 import Data.Data
 import Protolude
 
+import Submarination.Index
 import Submarination.Plural
 
-data Creature
+data Creature = Creature
+  { creatureIndex :: {-# UNPACK #-} !Index
+  , creatureType  :: !CreatureType }
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
+
+-- | Creature must be reindexed before put into game. This set index to 0.
+fromType :: CreatureType -> Creature
+fromType ctype = Creature { creatureIndex = invalidIndex
+                          , creatureType = ctype }
+
+data CreatureType
   = FoodVendor
   | AmmoVendor
   | ToolVendor
@@ -28,7 +38,11 @@ data Creature
   | Gator
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
-creatureName :: Creature -> Plural -> Text
+setIndex :: Index -> Creature -> Creature
+setIndex idx cr = cr { creatureIndex = idx }
+{-# INLINEABLE setIndex #-}
+
+creatureName :: CreatureType -> Plural -> Text
 creatureName FoodVendor Singular     = "a food vendor"
 creatureName FoodVendor Many         = "food vendors"
 creatureName AmmoVendor Singular     = "a munitions vendor"
@@ -48,23 +62,11 @@ creatureName Camobream Many          = "camobreams"
 creatureName Gator Singular          = "a gator"
 creatureName Gator Many              = "gators"
 
-isAnimal :: Creature -> Bool
+isAnimal :: CreatureType -> Bool
 isAnimal Snoatfish = True
 isAnimal Biddy = True
 isAnimal Enneapus = True
 isAnimal Camobream = True
 isAnimal Gator = True
 isAnimal _ = False
-
-foodVendor :: Creature
-foodVendor = FoodVendor
-
-ammoVendor :: Creature
-ammoVendor = AmmoVendor
-
-toolVendor :: Creature
-toolVendor = ToolVendor
-
-materialVendor :: Creature
-materialVendor = MaterialVendor
 

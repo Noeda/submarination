@@ -18,6 +18,7 @@ module Submarination.GameState
   , gsCycleGame
   , gsTurn
   , gsWait
+  , gsDepth
   , gsIsDead
   , gsDeathReason
   , gmMoveToDirection
@@ -66,6 +67,7 @@ module Submarination.GameState
   , glSub
   , subPosition
   , subTopology
+  , gsIsSubLocation
   , gsPlayerIsInsideSub
   , geStartDiving
   , Sub()
@@ -104,10 +106,11 @@ module Submarination.GameState
 
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
-import Control.Lens hiding ( Level, levels )
+import Control.Lens hiding ( Level, levels, Index )
 import qualified Data.Map.Strict as M
 import Data.Maybe
 import Data.List ( (!!), delete )
+import qualified Data.IntSet as IS
 import qualified Data.Set as S
 import Linear.V2
 import qualified Prelude as E
@@ -117,6 +120,7 @@ import Submarination.Biome.IntertidalZone
 import Submarination.Creature
 import Submarination.Direction
 import Submarination.GameState.Types
+import Submarination.Index
 import Submarination.Item
 import Submarination.Level
 import Submarination.Random
@@ -127,7 +131,7 @@ type GameMonad m = StateT GameState m
 type GameMonadRo m = ReaderT GameState m
 
 initialGameState :: GameState
-initialGameState = GameState
+initialGameState = gsIndexUnindexedCreatures $ GameState
   { _player = Player { _playerPosition = V2 15 8
                      , _playerMaximumHealth = 100
                      , _playerHealth = 100
@@ -144,6 +148,7 @@ initialGameState = GameState
   , _vendorMenu      = Nothing
   , _turn = 1
   , _inputTurn = 1
+  , _runningIndex = firstIndex
   , _godMode = False
   , _levels = M.fromList
                 [(0, surfaceLevel)
@@ -235,7 +240,7 @@ gsCurrentVendorItemSelection gs = do
   current_selection' <- gs^.glCurrentVendorMenuSelection
 
   let current_selection = max 0 $ min (length items-1) current_selection'
-      items = vendorItems vendor
+      items = vendorItems $ creatureType vendor
 
   guard (not $ null items)
 
@@ -261,9 +266,15 @@ gsAdvanceInputTurn = inputTurn +~ 1
 gsRetractInputTurn :: GameState -> GameState
 gsRetractInputTurn = inputTurn -~ 1
 
+gsIsSubLocation :: V2 Int -> GameState -> Bool
+gsIsSubLocation pos gs =
+  isJust $ firstOf (subCellP (pos - gs^.sub.subPosition)) (gs^.sub.subTopology)
+{-# INLINEABLE gsIsSubLocation #-}
+
 gsPlayerIsInsideSub :: GameState -> Bool
 gsPlayerIsInsideSub gs =
-  isJust $ firstOf (subCellP $ gs^.player.playerPosition - gs^.sub.subPosition) (gs^.sub.subTopology)
+  gsIsSubLocation (gs^.player.playerPosition) gs
+{-# INLINEABLE gsPlayerIsInsideSub #-}
 
 geStartDiving :: GameState -> Failing GameState
 geStartDiving gs = do
@@ -290,7 +301,9 @@ gsAdvanceTurn gs =
 
     -- Make submarine go deeper if it's diving
     is_diving <- use $ sub.subDiving
-    when is_diving $ depth += 1
+    when is_diving $ do
+      depth += 1
+      modify gsRemoveCreaturesUnderSub
 
     curdepth <- use depth
     when (curdepth >= 50) $
@@ -351,7 +364,8 @@ gsAdvanceTurn gs =
   walkSubLevelCreatures :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
   walkSubLevelCreatures = do
     topo <- use $ sub.subTopology
-    void $ forOf subLevelsWithOffset topo walkCreaturesLevel
+    subpos <- use $ sub.subPosition
+    void $ forOf (subLevelsWithOffset subpos) topo walkCreaturesLevel
 
   walkCurrentLevelMetadata :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
   walkCurrentLevelMetadata = do
@@ -362,7 +376,8 @@ gsAdvanceTurn gs =
   walkSubLevelMetadata :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
   walkSubLevelMetadata = do
     topo <- use $ sub.subTopology
-    new_sub_topo <- forOf subLevelsWithOffset topo walkLevel
+    subpos <- use $ sub.subPosition
+    new_sub_topo <- forOf (subLevelsWithOffset subpos) topo walkLevel
     sub.subTopology .= new_sub_topo
 
   walkLevel :: forall s. (Level, V2 Int) -> RandomSupplyT (StateT GameState (ST s)) Level
@@ -379,29 +394,33 @@ gsAdvanceTurn gs =
 
   walkCreaturesLevel :: forall s. (Level, V2 Int) -> RandomSupplyT (StateT GameState (ST s)) Level
   walkCreaturesLevel (lvl, offset) = do
-    flip evalStateT S.empty $ ifor_ (lvl^.creatures) $ \pos _creature -> do
+    flip evalStateT IS.empty $ ifor_ (lvl^.creatures) $ \pos' (creatureIndex -> index) -> do
+      let pos = pos' + offset
       sset <- get
-      unless (pos `S.member` sset) $ do
-        modify $ S.insert pos
+      unless (toInt index `IS.member` sset) $
         lift (use (glCreatureAt pos)) >>= \case
-          Nothing -> return ()
-          Just creature -> lift $ cycleCreature (pos + offset) creature
+          Just creature | creatureIndex creature == index -> do
+            modify $ IS.insert (toInt $ creatureIndex creature)
+            lift $ cycleCreature pos creature
+          _ -> return ()
     return lvl
 
 cycleCreature :: (MonadRandomSupply m, MonadState s m, HasGameState s)
               => V2 Int
               -> Creature
               -> m ()
-cycleCreature pos creature | isAnimal creature = go (4 :: Int)
+cycleCreature pos creature | isAnimal (creatureType creature) = go (4 :: Int)
  where
   go 0 = return ()
   go tries = do
     dir <- randomDirection
     gs <- get
+    playerpos <- use $ gameState.player.playerPosition
 
     let new_pos = move1V2 dir pos
         is_okay = isNothing (gs^.gameState.glCreatureAt new_pos) &&
-                  isWalkable (gs^.gameState.glCellAt new_pos)
+                  isWalkable (gs^.gameState.glCellAt new_pos) &&
+                  new_pos /= playerpos
 
     if is_okay
       then do gameState.glCreatureAt pos .= Nothing
@@ -475,8 +494,8 @@ surfaceLevel = levelFromStringsPlacements SurfaceWater placements
   ,"#####################g1ggg2##^^^^######################"
   ,"####^^^^#######^^^###gggggg##^^########^^^#############"
   ,"###^^###########^^##^ggggggg###########################"
-  ,"################^^##^g3ggg4g##############^############"
-  ,"########^^^#####^^###gggggg###^#####^##################"
+  ,"################^^##^gggggg4##############^############"
+  ,"########^^^#####^^###g3gggg###^#####^##################"
   ,"#################^####^ggg####^###^^############^######"
   ,"#################^##^##gg##^^#^###^^###################"
   ,"####################^##########^#^^^###################"
@@ -494,10 +513,10 @@ surfaceLevel = levelFromStringsPlacements SurfaceWater placements
   ,"#######################################################"]
  where
   placements =
-    [(1, ('g', placeCreature foodVendor))
-    ,(2, ('g', placeCreature ammoVendor))
-    ,(3, ('g', placeCreature toolVendor))
-    ,(4, ('g', placeCreature materialVendor))]
+    [(1, ('g', placeCreature $ fromType FoodVendor))
+    ,(2, ('g', placeCreature $ fromType AmmoVendor))
+    ,(3, ('g', placeCreature $ fromType ToolVendor))
+    ,(4, ('g', placeCreature $ fromType MaterialVendor))]
 
 gsMaximumOxygenLevel :: GameState -> Int
 gsMaximumOxygenLevel _ = 100
@@ -593,10 +612,7 @@ gmCurrentVendorCreature gs = runMaybeExcept $ do
 
   for_ (allNeighbours playerpos) $ \candidate_pos ->
     case gs^.glCreatureAt candidate_pos of
-      Just FoodVendor     -> throwE FoodVendor
-      Just AmmoVendor     -> throwE AmmoVendor
-      Just MaterialVendor -> throwE MaterialVendor
-      Just ToolVendor     -> throwE ToolVendor
+      Just creature | isVendor (creatureType creature) -> throwE creature
       _ -> return ()
 
 gmActiveMenuHandler :: GameState -> Maybe ItemMenuHandler
@@ -1000,7 +1016,7 @@ gmCursorModification action gs =
     old_selection <- gs^.vendorMenu
     vendor <- gmCurrentVendorCreature gs
 
-    let vitems = vendorItems vendor
+    let vitems = vendorItems (creatureType vendor)
         gitems = groupItems vitems
         max_selection = M.size gitems-1
         new_selection = action old_selection
@@ -1062,4 +1078,44 @@ glCreatureAt :: V2 Int -> Lens' GameState (Maybe Creature)
 glCreatureAt = subOrLevelLens creatureAt subCreatureP
 {-# INLINE glCreatureAt #-}
 
+gsRemoveCreaturesUnderSub :: GameState -> GameState
+gsRemoveCreaturesUnderSub gs = gs & glCurrentLevel.creatures %~ removeThem
+ where
+  removeThem = M.filterWithKey (\loc _creature -> not $ gsIsSubLocation loc gs)
+
+-- | Gets the next unique `Index` from `GameState`.
+nextGSIndex :: (MonadState s m, HasGameState s) => m Index
+nextGSIndex = do
+  idx <- use $ gameState.runningIndex
+  pure idx <* (gameState.runningIndex .= next idx)
+
+-- | Traversal to EVERY creature in the game
+allCreatures :: Traversal' GameState Creature
+allCreatures fun gs =
+  (\new_levels new_sub -> gs & (levels .~ new_levels) . (sub.subTopology .~ new_sub))
+  <$> new_levels <*> new_sub
+ where
+  new_levels =
+    for (gs^.levels) $ \lvl ->
+      (\new_creatures -> lvl & creatures .~ new_creatures) <$>
+        for (lvl^.creatures) fun
+
+  new_sub =
+    forOf subLevels (gs^.sub.subTopology) $ \lvl ->
+      (\new_creatures -> lvl & creatures .~ new_creatures) <$>
+        for (lvl^.creatures) fun
+
+-- | This walks every creature everywhere in the game and indexes them if they
+-- don't have a unique index.
+gsIndexUnindexedCreatures :: GameState -> GameState
+gsIndexUnindexedCreatures gs = flip execState gs $ do
+  new_gs <- forOf allCreatures gs $ \creature ->
+    if isInvalidIndex (creatureIndex creature)
+      then nextGSIndex <&> flip setIndex creature
+      else pure creature
+  st_gs <- get
+  put $ new_gs & runningIndex .~ (st_gs^.runningIndex)
+
+gsDepth :: GameState -> Int
+gsDepth = (^.depth)
 

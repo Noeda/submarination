@@ -11,6 +11,7 @@ module Submarination.GameState.Types
   , deathReason
   , turn
   , inputTurn
+  , runningIndex
   , levels
   , godMode
   , Sub(..)
@@ -44,7 +45,7 @@ module Submarination.GameState.Types
   , addFail )
   where
 
-import Control.Lens hiding ( Level, levels )
+import Control.Lens hiding ( Level, levels, Index )
 import Data.Data
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -52,6 +53,7 @@ import qualified Data.Set as S
 import Linear.V2
 import Protolude hiding ( (&) )
 
+import Submarination.Index
 import Submarination.Item
 import Submarination.Level
 import Submarination.Sub
@@ -86,6 +88,7 @@ data GameState = GameState
   , _turn                :: Int
   , _inputTurn           :: Int
   , _godMode             :: Bool
+  , _runningIndex        :: Index
   , _levels              :: M.Map Int Level
   , _messages            :: M.Map Int Text }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
@@ -138,8 +141,8 @@ subOrLevelLens level_lens sub_lens coords@(V2 x y) = lens get_it set_it
       then level_cell
       -- If we *are* inside sub bounding box, attempt to look up sub level cell
       -- instead.
-      else fromMaybe level_cell $ case gamestate^..sub.subTopology.sub_lens (V2 (x-sx) (y-sy)) of
-             [target] -> Just target
+      else fromMaybe level_cell $ case firstOf (sub.subTopology.sub_lens (V2 (x-sx) (y-sy))) gamestate of
+             Just target -> Just target
              _ -> Nothing
    where
     level_cell = gamestate^.glCurrentLevel.level_lens coords

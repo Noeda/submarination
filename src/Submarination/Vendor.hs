@@ -9,7 +9,7 @@ import Protolude
 import Submarination.Creature
 import Submarination.Item
 
-vendorDescription :: Creature -> Text
+vendorDescription :: CreatureType -> Text
 vendorDescription FoodVendor =
   "Welcome to Nigel's Seafood Catering Company! All our food is guaranteed lead-free!"
 vendorDescription AmmoVendor =
@@ -20,7 +20,7 @@ vendorDescription MaterialVendor =
   "YOU THERE! Buy our wondrous materials. We may not have a great variety but you can be sure all our materials are very wondrous."
 vendorDescription _ = ""
 
-vendorItems :: Creature -> [Item]
+vendorItems :: CreatureType -> [Item]
 vendorItems FoodVendor =
   [SardineTin
   ,Poylent
@@ -39,6 +39,6 @@ vendorItems MaterialVendor =
   [HullParts]
 vendorItems _ = []
 
-isVendor :: Creature -> Bool
+isVendor :: CreatureType -> Bool
 isVendor = not . null . vendorItems
 

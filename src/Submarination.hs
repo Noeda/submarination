@@ -11,6 +11,7 @@ import qualified Data.Set as S
 import Prelude ( String )
 import Protolude hiding ( to, drop )
 
+import Submarination.Creature
 import Submarination.GameState
 import Submarination.Key
 import Submarination.Render
@@ -154,7 +155,7 @@ navigateCursor ch = case ch of
 vendorMenu :: Monad m => Char -> GameMonad m ()
 vendorMenu ch = ((,) <$> gm gmCurrentVendorCreature <*> gm (^.glCurrentVendorMenuSelection)) >>= \case
   (Just vendor, Just current_selection') -> do
-    let items = vendorItems vendor
+    let items = vendorItems $ creatureType vendor
         current_selection = max 0 $ min (length items-1) current_selection'
     case ch of
       'a' | current_selection > 0 -> glCurrentVendorMenuSelection .= (Just $ current_selection-1)

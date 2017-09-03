@@ -171,7 +171,7 @@ renderGameState' monotonic_time_ns = do
 
 type GameMonadRoTerminal s = GameMonadRo (MutateTerminal s)
 
-creatureToAppearance :: Creature -> Cell -> Cell
+creatureToAppearance :: CreatureType -> Cell -> Cell
 creatureToAppearance creature (Cell fintensity fcolor bintensity bcolor _) = case creature of
   FoodVendor     -> Cell Vivid White Dull Yellow '@'
   AmmoVendor     -> Cell Vivid White Dull Yellow '@'
@@ -210,7 +210,7 @@ reverseAppearance :: Cell -> Cell
 reverseAppearance (Cell fintensity fcolor bintensity bcolor ch) =
   Cell bintensity bcolor fintensity fcolor ch
 
-renderCreatures :: GameMonadRoTerminal s (M.Map Creature Int)
+renderCreatures :: GameMonadRoTerminal s (M.Map CreatureType Int)
 renderCreatures = do
   V2 px py <- view $ glPlayer.playerPosition
   gs <- gr identity
@@ -221,8 +221,7 @@ renderCreatures = do
         (tx, ty) = ((+) rx *** (+) ry) mapMiddleOnTerminal
 
     case gs^.glCreatureAt (V2 cx cy) of
-      Nothing -> return ()
-      Just creature -> do
+      Just (creatureType -> creature) -> do
         lift $ do
           old_cell <- getCell' tx ty
           setCell' tx ty (creatureToAppearance creature old_cell)
@@ -230,14 +229,16 @@ renderCreatures = do
         unless (isVendor creature) $
           at creature %= \case Nothing -> Just 1; Just x -> Just (x+1)
 
+      _ -> return ()
+
 renderCurrentLevel :: Integer -> GameMonadRoTerminal s ()
 renderCurrentLevel monotonic_time_ns = do
   lvl <- gr gsCurrentLevel
   playerpos <- gr (^.glPlayer.playerPosition)
   renderLevel monotonic_time_ns lvl playerpos
 
-levelFeatureToAppearance :: LevelCell -> Double -> Int -> Int -> Cell
-levelFeatureToAppearance lcell monotonic_time x y = case lcell of
+levelFeatureToAppearance :: Int -> LevelCell -> Double -> Int -> Int -> Cell
+levelFeatureToAppearance depth lcell monotonic_time x y = case lcell of
   WoodenBoards      -> Cell Vivid Yellow Dull Black '.'
   Rock              -> Cell Vivid Black Dull White ' '
   MountainRock      -> Cell Vivid White Dull White '^'
@@ -254,7 +255,8 @@ levelFeatureToAppearance lcell monotonic_time x y = case lcell of
   BloodCoagulated   -> Cell Dull Red Dull Black '≈'
 
   cell | cell == Water ->
-    let theta = sin (dx*9338.3) + cos (sin (dy*3.3)*119) - sin (sin dx+cos dy*3331 + sin sectime)
+    let dy' = dy + fromIntegral depth
+        theta = sin (dx*9338.3) + cos (sin (dy'*3.3)*119) - sin (sin dx+cos dy'*3331 + sin sectime)
 
      in if theta < 0.9
           then Cell Vivid Blue Dull Black '.'
@@ -306,6 +308,7 @@ renderSub monotonic_time_ns = do
 
   topo <- gr (^.glSub.subTopology)
   oxygen <- gr (^.glPlayer.playerOxygen)
+  dep <- gr (^.to gsDepth)
 
   lift $ for_ [V2 x y | x <- [px-losDistance..px+losDistance], y <- [py-losDistance..py+losDistance]] $ \(V2 lx ly) -> do
     let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) mapMiddleOnTerminal
@@ -315,7 +318,7 @@ renderSub monotonic_time_ns = do
         Nothing -> return ()
         Just subcell -> do
           let render_at = uncurry setCell' terminalcoord
-          render_at $ levelFeatureToAppearance subcell monotonic_time sx sy
+          render_at $ levelFeatureToAppearance dep subcell monotonic_time sx sy
 
           for_ (subItems topo subcoords) $ \items ->
             renderItemPile render_at items
@@ -336,6 +339,8 @@ renderItemPile action (first_item:_rest) =
 renderLevel :: Integer -> Level -> V2 Int -> GameMonadRoTerminal s ()
 renderLevel monotonic_time_ns level (V2 ox oy) = do
   oxygen <- gr (^.glPlayer.playerOxygen)
+  dep <- gr (^.to gsDepth)
+
   lift $ for_ [V2 x y | x <- [ox-losDistance..ox+losDistance], y <- [oy-losDistance..oy+losDistance]] $ \levelcoord@(V2 lx ly) -> do
     let terminalcoord = ((+) (lx - ox) *** (+) (ly - oy)) mapMiddleOnTerminal
     -- What is the cell we should render?
@@ -346,7 +351,7 @@ renderLevel monotonic_time_ns level (V2 ox oy) = do
 
     let render_at = uncurry setCell' terminalcoord
 
-    render_at $ levelFeatureToAppearance level_feature monotonic_time lx ly
+    render_at $ levelFeatureToAppearance dep level_feature monotonic_time lx ly
     renderItemPile render_at (level^.itemsAt levelcoord)
 
     when (oxygen < 0) $ do
@@ -439,7 +444,7 @@ appendWrappedText x skip max_width fintensity fcolor bintensity bcolor txt = do
 
   putSideY (y+height+skip)
 
-renderHud :: Integer -> M.Map Creature Int -> GameMonadRoTerminal s ()
+renderHud :: Integer -> M.Map CreatureType Int -> GameMonadRoTerminal s ()
 renderHud monotonic_time_ns creature_count = do
 
   -- The name of the section of submarine you are in
@@ -597,7 +602,7 @@ renderKeyInstructions insts original_x = go insts original_x
       appendText x 0 Vivid Green Dull Black last_key
       go2 [] (x+textWidth last_key)
 
-renderCreatureListing :: M.Map Creature Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
+renderCreatureListing :: M.Map CreatureType Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderCreatureListing creatures =
   renderList (M.assocs creatures) $ \(creature, count) y -> do
     lift $ lift $ setCell' 2 y (creatureToAppearance creature $ Cell Dull White Dull Black ' ')
@@ -718,7 +723,7 @@ renderDeadScreen = do
     void $ setWrappedText 2 4 60 Dull White Dull Black $ "Cause of death: " <> death_reason
     void $ setWrappedText 2 6 60 Dull White Dull Black $ "You survived for " <> show turn <> " turns."
 
-renderAdditionalHud :: M.Map Creature Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
+renderAdditionalHud :: M.Map CreatureType Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderAdditionalHud creature_count = do
   -- Money only has purpose on surface at the moment
   on_surface <- gr gsIsOnSurface
@@ -735,10 +740,10 @@ renderAdditionalHud creature_count = do
 
   when on_surface $ withSide LeftSide $ ((,) <$> gr gmCurrentVendorCreature <*> gr (^.glCurrentVendorMenuSelection)) >>= \case
     (Just vendor, Just menu_selection) -> do
-      let desc = vendorDescription vendor
+      let desc = vendorDescription $ creatureType vendor
       _ <- appendWrappedText 3 2 25 Dull White Dull Black desc
 
-      for_ (zip (vendorItems vendor) [0..]) $ \(item, selection_num) -> do
+      for_ (zip (vendorItems $ creatureType vendor) [0..]) $ \(item, selection_num) -> do
         if selection_num == menu_selection
           then do appendText 2 0 Vivid Green Dull Black "➔"
                   appendText 4 0 Vivid Blue Dull Black (itemName item Singular)
@@ -779,7 +784,7 @@ renderLevelHuge lvl = liftIO $ withKeyboardTerminal $
       for_ [0..w-1] $ \x ->
         for_ [0..h-1] $ \y -> do
           let cell       = lvl^.cellAt (V2 x y)
-              appearance = levelFeatureToAppearance cell monotonic_time x y
+              appearance = levelFeatureToAppearance 0 cell monotonic_time x y
 
           setCell' x y appearance
 

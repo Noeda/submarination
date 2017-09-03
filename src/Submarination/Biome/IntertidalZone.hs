@@ -55,7 +55,6 @@ darkenRocks lvl = flip execState lvl $
 
 isAcceptableCreatureLocation :: V2 Int -> Level -> Bool
 isAcceptableCreatureLocation (V2 x y) lvl =
-  not (x < 20 && y < 20 && x > -20 && y > -20) &&
   isWalkable (lvl^.cellAt (V2 x y)) &&
   isNothing (lvl^.creatureAt (V2 x y))
 
@@ -79,23 +78,23 @@ placeCreatures = execStateT $ do
 
   placeGators = replicateM_ 20 $
     randomAcceptableCreatureLocation $ \pos ->
-      creatureAt pos .= Just Gator
+      creatureAt pos .= Just (fromType Gator)
 
   placeSnoatfish = replicateM_ 100 $
     randomAcceptableCreatureLocation $ \pos ->
-      creatureAt pos .= Just Snoatfish
+      creatureAt pos .= Just (fromType Snoatfish)
 
   placeBiddy = replicateM_ 50 $
     randomAcceptableCreatureLocation $ \pos ->
-      creatureAt pos .= Just Biddy
+      creatureAt pos .= Just (fromType Biddy)
 
   placeEnneapus = replicateM_ 10 $
     randomAcceptableCreatureLocation $ \pos ->
-      creatureAt pos .= Just Enneapus
+      creatureAt pos .= Just (fromType Enneapus)
 
   placeCamobream = replicateM_ 15 $
     randomAcceptableCreatureLocation $ \pos ->
-      creatureAt pos .= Just Camobream
+      creatureAt pos .= Just (fromType Camobream)
 
   placeCorpseParty = randomAcceptableCreatureLocation $ actuallyPlaceCorpseParty (30 :: Int)
 
