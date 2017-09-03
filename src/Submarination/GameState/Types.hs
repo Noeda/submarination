@@ -69,6 +69,7 @@ data ActiveMenuState
   | ContainerTakeOut
   | ContainerPutIn
   | StartDive
+  | MicrowaveMenu
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
 
 data Sub = Sub
@@ -183,7 +184,7 @@ data ItemMenuHandler = ItemMenuHandler
   , menuKeys              :: M.Map Char (Text, GameState -> Failing GameState)
   , prerequisites         :: GameState -> Bool
   , selectMode            :: SelectMode
-  , menuFilter            :: Item -> Bool
+  , menuFilter            :: GameState -> Item -> Bool
   , menuText              :: !Text
   , toActiveMenuInventory :: GameState -> [Item]
   , otherKeys             :: GameState -> M.Map Char Text

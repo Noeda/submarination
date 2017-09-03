@@ -190,6 +190,7 @@ itemToAppearance item = go $ item^.itemType
   go SardineTin           = Cell Dull Cyan Dull Black '%'
   go Poylent              = Cell Vivid Cyan Dull Black '%'
   go Chicken              = Cell Vivid Red Dull Black '%'
+  go CookedChicken        = Cell Dull Red Dull Black '%'
   go Potato               = Cell Vivid Yellow Dull Black '%'
   go Whiskey              = Cell Dull Yellow Dull Black '!'
   go Freezer{}            = Cell Vivid Cyan Dull Black '■'
@@ -505,7 +506,9 @@ renderItemMenu item_handler = do
   unless (T.null $ menuText item_handler) $
     appendWrappedText 1 2 40 Dull White Dull Black (menuText item_handler)
 
-  items <- filter (menuFilter item_handler) <$> gr (^.itemLens item_handler)
+  gs <- gr identity
+
+  items <- filter (menuFilter item_handler gs) <$> gr (^.itemLens item_handler)
   let gitems = groupItems items
 
   (case selectMode item_handler of

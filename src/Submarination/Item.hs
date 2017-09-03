@@ -18,6 +18,8 @@ module Submarination.Item
   , putItem
   , removeItem
   , isSpoiled
+  , isMicrowave
+  , microwaveItem
 
   , tests )
   where
@@ -52,6 +54,7 @@ data ItemType
   = SardineTin
   | Poylent
   | Chicken
+  | CookedChicken
   | Potato
   | Freezer [Item]
   | Refrigerator [Item]
@@ -98,6 +101,7 @@ itemTypeArbitrary tree_division =
   oneof [pure SardineTin
         ,pure Poylent
         ,pure Chicken
+        ,pure CookedChicken
         ,pure Potato
         ,Freezer <$> itemsArbitrary
         ,Refrigerator <$> itemsArbitrary
@@ -154,6 +158,8 @@ itemName turn item plural =
   go Poylent         Many          = "bottles of poylent"
   go Chicken         Singular      = "a chicken"
   go Chicken         Many          = "chickens"
+  go CookedChicken   Singular      = "a cooked chicken"
+  go CookedChicken   Many          = "cooked chickens"
   go Potato          Singular      = "a potato"
   go Potato          Many          = "potatoes"
   go Freezer{}       Singular      = "a freezer"
@@ -189,6 +195,10 @@ itemName turn item plural =
   go Harpoon Singular              = "a harpoon"
   go Harpoon Many                  = "harpoons"
 
+chickenDesc :: Text
+chickenDesc =
+  "A common avian delicacy. Chicken is rich in protein and actually tastes like something. However, chicken spoils quickly if it's not refrigerated or frozen and it must be warmed up before eaten. Microwave for more nutrition."
+
 itemDescription :: Item -> Text
 itemDescription item = go $ item^.itemType
  where
@@ -196,8 +206,11 @@ itemDescription item = go $ item^.itemType
     "Sardines in a tin. It's hard to ravish a tin of sardines but they'll fill you up."
   go Poylent =
     "Bottle filled with goo that meets all nutritional requirements. It's latest and only product of Beet Labs. Non-refundable."
-  go Chicken =
-    "A common avian delicacy. Chicken is rich in protein and actually tastes like something. However, chicken spoils quickly if it's not refrigerated or frozen and it must be warmed up before eaten."
+
+  go Chicken = chickenDesc
+
+  go CookedChicken = chickenDesc
+
   go Potato =
     "How many potatoes does it take to kill an Irishman? Answer: None."
   go Freezer{} =
@@ -236,11 +249,12 @@ itemDescription item = go $ item^.itemType
 itemPrice :: Item -> Int
 itemPrice item = go $ item^.itemType
  where
-  go SardineTin   = 10
-  go Poylent      = 100
-  go Chicken      = 50
-  go Potato       = 10
-  go Whiskey      = 100
+  go SardineTin    = 10
+  go Poylent       = 100
+  go Chicken       = 50
+  go CookedChicken = 80
+  go Potato        = 10
+  go Whiskey       = 100
   go (StorageBox inner_items)   = 300 + sum (itemPrice <$> inner_items)
   go (Freezer inner_items)      = 200 + sum (itemPrice <$> inner_items)
   go (Refrigerator inner_items) = 150 + sum (itemPrice <$> inner_items)
@@ -302,12 +316,13 @@ isEdible = (> 0) . itemNutrition
 
 itemNutrition :: Item -> Int
 itemNutrition item = case item^.itemType of
-  SardineTin -> 30
-  Chicken    -> 300
-  Potato     -> 80
-  Poylent    -> 300
-  Whiskey    -> 10
-  _          -> 0
+  SardineTin    -> 30
+  Chicken       -> 200
+  CookedChicken -> 500
+  Potato        -> 80
+  Poylent       -> 300
+  Whiskey       -> 10
+  _             -> 0
 
 itemFromType :: Turn -> ItemType -> Item
 itemFromType turn itype = Item
@@ -367,6 +382,8 @@ isSpoiled turn item = case item^.itemType of
     age - frozen_quotient - (refrigerated_quotient - refrigerated_quotient `div` 10) > 500
   Potato ->
     age - frozen_quotient - (refrigerated_quotient - refrigerated_quotient `div` 10) > 3000
+  CookedChicken ->
+    age - frozen_quotient - (refrigerated_quotient - refrigerated_quotient `div` 10) > 50
   _ -> False
  where
   age = turnToInt $ turn - item^.creationTurn
@@ -392,7 +409,7 @@ putItem :: Turn -> Item -> Item -> Either Text Item
 putItem turn item container =
   case firstOf itemContents container of
     Nothing -> Left "Not a container"
-    Just old_items | length old_items >= itemStorageLimit item
+    Just old_items | length old_items >= itemStorageLimit container
       -> Left "Container full"
     Just{} ->
       Right $ container & itemContents %~ \old_items -> insert_item:old_items
@@ -418,6 +435,15 @@ refrigerateItem turn =
 unrefrigerateItem :: Turn -> Item -> Item
 unrefrigerateItem turn =
   refrigeratedHistory %~ IM.insert (turnToInt turn) NotFrozen
+
+microwaveItem :: Turn -> Item -> Maybe Item
+microwaveItem turn item | isSpoiled turn item = Nothing
+microwaveItem turn item = case item^.itemType of
+  Chicken -> Just $ itemFromType turn CookedChicken
+  _ -> Nothing
+
+-------------------
+-- *** TESTS *** --
 
 tests :: [Test]
 tests =
@@ -448,4 +474,8 @@ testCanonicalizedRefrigeratedHistory item turn' =
   let max_turn = maximum $ (item^.creationTurn):(fmap intToTurn $ IM.keys $ item^.refrigeratedHistory)
       turn = turn' + max_turn
    in unfrozenQuotient turn item == unfrozenQuotient turn (canonicalizeFrozenHistory refrigeratedHistory item turn)
+
+isMicrowave :: ItemType -> Bool
+isMicrowave Microwave{} = True
+isMicrowave _ = False
 

@@ -635,7 +635,8 @@ gmActiveMenuHandler gs =
   ch Pickup <|>
   ch ContainerPutIn <|>
   ch ContainerTakeOut <|>
-  ch StartDive
+  ch StartDive <|>
+  ch MicrowaveMenu
  where
   ch ms = case gs^.activeMenuState.at ms of
     Nothing -> Nothing
@@ -647,6 +648,7 @@ gmActiveMenu gs =
      | Drop                `M.member` menus -> Just Drop
      | Eat                 `M.member` menus -> Just Eat
      | Pickup              `M.member` menus -> Just Pickup
+     | MicrowaveMenu       `M.member` menus -> Just MicrowaveMenu
      | ContainerPutIn      `M.member` menus -> Just ContainerPutIn
      | ContainerTakeOut    `M.member` menus -> Just ContainerTakeOut
      | StartDive           `M.member` menus -> Just StartDive
@@ -723,7 +725,7 @@ menuKeyToMenuStateTrigger gs ch = go menu_states
 gmCurrentlyAvailableItems :: GameState -> Maybe [Item]
 gmCurrentlyAvailableItems gs = do
   handler <- gmActiveMenuHandler gs
-  let items = filter (menuFilter handler) (gs^.itemLens handler)
+  let items = filter (menuFilter handler gs) (gs^.itemLens handler)
   return items
 
 gmCurrentlySelectedItems :: GameState -> Maybe [Item]
@@ -733,7 +735,7 @@ gmCurrentlySelectedItems gs = do
     SingleSelect  -> (:[]) <$> gmCurrentlySelectedSingleItem gs
     MultiSelect   -> do
       selected_set' <- gs^?activeMenuState.at (menuStateKey handler)._Just._1
-      let items = filter (menuFilter handler) (gs^.itemLens handler)
+      let items = filter (menuFilter handler gs) (gs^.itemLens handler)
           gitems = M.assocs $ groupItems items
           selected_set = M.filterWithKey (\idx _ -> idx < length gitems) selected_set'
 
@@ -746,7 +748,7 @@ gmCurrentlySelectedItems gs = do
 gmCurrentlySelectedSingleItem :: GameState -> Maybe Item
 gmCurrentlySelectedSingleItem gs = do
   handler <- gmActiveMenuHandler gs
-  let items = filter (menuFilter handler) (gs^.itemLens handler)
+  let items = filter (menuFilter handler gs) (gs^.itemLens handler)
       gitems = groupItems items
 
   guard (not $ null items)
@@ -899,11 +901,14 @@ defaultItemHandler key item_lens = ItemMenuHandler
   , selectMode            = NotSelectable
   , menuKeys              = M.empty
   , prerequisites         = const True
-  , menuFilter            = const True
+  , menuFilter            = (\_ _ -> True)
   , quickEnterAction      = const Nothing
   , otherKeys             = const M.empty
   , toActiveMenuInventory = const []
   , itemLens              = item_lens }
+
+anyItemMenuFilter :: GameState -> Item -> Bool
+anyItemMenuFilter _ _ = True
 
 menuTransition :: GameState -> Char -> Text -> ActiveMenuState -> [(Char, Text)]
 menuTransition gs ch text ams =
@@ -920,7 +925,7 @@ menuItemHandler Inventory = (defaultItemHandler Inventory (player.playerInventor
   , menuKeys = M.empty
   , prerequisites = \gs -> not (gsInActiveMenu gs) &&
                            not (null $ gs^.player.playerInventory)
-  , menuFilter = const True
+  , menuFilter = anyItemMenuFilter
   , otherKeys = \gs -> M.fromList $
                   menuTransition gs 'd' "Drop items" Drop <>
                   menuTransition gs 'e' "Eat" Eat
@@ -934,7 +939,7 @@ menuItemHandler Eat = (defaultItemHandler Eat (player.playerInventory))
   , menuKeys = M.fromList [('e', ("Eat", (^.to geEatInventoryItemByMenu)))]
   , prerequisites = \gs -> gmActiveMenu gs == Just Inventory &&
                            not (null $ filter isEdible $ gs^.player.playerInventory)
-  , menuFilter = isEdible }
+  , menuFilter = \_ -> isEdible }
 
 menuItemHandler Drop = (defaultItemHandler Drop (player.playerInventory))
   { triggerKeys = S.fromList "d"
@@ -944,7 +949,7 @@ menuItemHandler Drop = (defaultItemHandler Drop (player.playerInventory))
   , menuKeys = M.fromList [('d', ("Drop", (^.to geDropInventoryItemByMenu)))]
   , prerequisites = \gs -> gmActiveMenu gs == Just Inventory &&
                            not (null $ gs^.player.playerInventory)
-  , menuFilter = const True }
+  , menuFilter = anyItemMenuFilter }
 
 menuItemHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
   { triggerKeys = S.fromList ","
@@ -954,7 +959,7 @@ menuItemHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
   , menuKeys = M.fromList [(',', ("Pick up", \gs -> gs^.to gePickUpItemByMenu))]
 
   , prerequisites = \gs -> not (gsInActiveMenu gs) && not (null $ gs^.itemsAtPlayer)
-  , menuFilter = not . isItemBulky
+  , menuFilter = \_ -> not . isItemBulky
   , quickEnterAction = \gs -> case filter (not . isItemBulky) $ gs^.itemsAtPlayer of
       [single_item] -> gs ^?
         to (gmPickUpItem single_item)._Just.
@@ -968,7 +973,7 @@ menuItemHandler ContainerTakeOut = (defaultItemHandler ContainerTakeOut activeMe
   , selectMode  = MultiSelect
   , menuKeys = M.fromList [('t', ("Take out", \gs -> gs^.to geTakeOutItemsByMenu))]
   , prerequisites = isJust . bulkies
-  , menuFilter = not . isItemBulky
+  , menuFilter = \_ -> not . isItemBulky
   , toActiveMenuInventory = fromMaybe [] . bulkies
   }
  where
@@ -986,7 +991,7 @@ menuItemHandler ContainerPutIn = (defaultItemHandler ContainerPutIn (player.play
   , menuKeys = M.fromList [('p', ("Put in", \gs -> gs^.to gePutInItemsByMenu))]
   , prerequisites = \gs -> view (player.playerInventory.to (not . null)) gs &&
                            isJust (gs^?gllAtPlayer glBulkyItemAt._Just.itemContents)
-  , menuFilter = not . isItemBulky }
+  , menuFilter = \_ -> not . isItemBulky }
 
 menuItemHandler StartDive = (defaultItemHandler StartDive activeMenuInventory)
   { triggerKeys   = S.fromList "d"
@@ -997,16 +1002,43 @@ menuItemHandler StartDive = (defaultItemHandler StartDive activeMenuInventory)
   , prerequisites = \gs -> isNothing (gmActiveMenu gs) &&
                            not (gs^.sub.subDiving) &&
                            (isBridge <$> getAtomTopologyAt (gs^.player.playerPosition - gs^.sub.subPosition) (gs^.sub.subTopology)) == Just True
-  , menuFilter    = const False
+  , menuFilter    = \_ _ -> False
   , menuText      = "There is no turning back after you dive. Make sure you've spent your money and stocked up properly."
   }
+
+menuItemHandler MicrowaveMenu = (defaultItemHandler MicrowaveMenu activeMenuInventory)
+  { triggerKeys   = S.fromList "f"
+  , menuName      = "Microwave"
+  , offKeys       = S.fromList "q "
+  , selectMode    = NotSelectable
+  , menuKeys      = M.fromList [('f', ("Microwave", \gs -> fmap gsAdvanceTurn $ gs^.to geMicrowave))]
+  , prerequisites = \gs -> isNothing (gmActiveMenu gs) &&
+                           gsPlayerIsInsideSub gs &&
+                           (isMicrowave <$> (gs^?gllAtPlayer glBulkyItemAt._Just.itemType)) == Just True
+  , menuFilter    = \gs item -> isJust (microwaveItem (gsTurn gs) item)
+  , menuText      = "These are the items that would be microwaved:"
+  , toActiveMenuInventory = \gs -> fromMaybe [] $ gs^?gllAtPlayer glBulkyItemAt._Just.itemContents
+  }
+
+geMicrowave :: GameState -> Failing GameState
+geMicrowave gs = do
+  guardE ((isMicrowave <$> (gs^?gllAtPlayer glBulkyItemAt._Just.itemType)) == Just True) "No microwave nearby."
+  guardE (gs^.sub.subEnergy >= 5) "Submarine does not have enough energy."
+
+  let microwaveables = fromMaybe [] $ gs^?gllAtPlayer glBulkyItemAt._Just.itemContents :: [Item]
+  guardE (length microwaveables > 0) "There is nothing inside microwave."
+
+  microwaved <- toFailing $ traverse (microwaveItem (gsTurn gs)) microwaveables
+
+  return $ gs & (sub.subEnergy -~ 5) .
+                (gllAtPlayer glBulkyItemAt._Just.itemContents .~ microwaved)
 
 gsIsVendoring :: GameState -> Bool
 gsIsVendoring gs = isJust $ gs^.vendorMenu
 
 getSelection :: ItemMenuHandler -> GameState -> (Int, Int)
 getSelection handler gs =
-  let items = filter (menuFilter handler) (gs^.itemLens handler)
+  let items = filter (menuFilter handler gs) (gs^.itemLens handler)
       menu_selection = fromMaybe 0 $ gs^?activeMenuState.at (menuStateKey handler)._Just._2
       max_selection = M.size (groupItems items)-1
 
