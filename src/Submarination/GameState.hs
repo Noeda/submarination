@@ -1028,7 +1028,7 @@ geMicrowave gs = do
   let microwaveables = fromMaybe [] $ gs^?gllAtPlayer glBulkyItemAt._Just.itemContents :: [Item]
   guardE (length microwaveables > 0) "There is nothing inside microwave."
 
-  microwaved <- toFailing $ traverse (microwaveItem (gsTurn gs)) microwaveables
+  microwaved <- addFail (traverse (microwaveItem (gsTurn gs)) microwaveables) "There is nothing microwaveable inside microwave."
 
   return $ gs & (sub.subEnergy -~ 5) .
                 (gllAtPlayer glBulkyItemAt._Just.itemContents .~ microwaved)
