@@ -33,6 +33,7 @@ import Submarination.MonotonicClock
 import Submarination.Level
 import Submarination.Sub
 import Submarination.Terminal
+import Submarination.Turn
 import Submarination.Vendor
 
 data Rendering

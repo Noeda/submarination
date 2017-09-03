@@ -782,8 +782,15 @@ geEatItem :: Item -> GameState -> Failing GameState
 geEatItem item gs = do
   guardE (not $ gsIsSatiated gs) "Too satiated to eat."
   guardE (item `elem` (gs^.player.playerInventory)) "No item in inventory"
-  return $ gs & (player.playerInventory %~ delete item) .
-                (player.playerHunger +~ (itemNutrition item))
+  guardE (gs^.player.playerHealth > 0) "Cannot eat if you are dead"
+
+  return $ if isSpoiled (gsTurn gs) item
+    then gs & (player.playerHealth %~ max 1) .
+              (player.playerHealth -~ 20) .
+              (player.playerInventory %~ delete item) .
+              (player.playerHunger +~ (itemNutrition item `div` 3))
+    else gs & (player.playerInventory %~ delete item) .
+              (player.playerHunger +~ (itemNutrition item))
 
 geDropItem :: Item -> GameState -> Failing GameState
 geDropItem item gs = do

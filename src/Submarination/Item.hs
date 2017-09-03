@@ -302,9 +302,9 @@ isEdible = (> 0) . itemNutrition
 
 itemNutrition :: Item -> Int
 itemNutrition item = case item^.itemType of
-  SardineTin -> 50
+  SardineTin -> 30
   Chicken    -> 300
-  Potato     -> 45
+  Potato     -> 80
   Poylent    -> 300
   Whiskey    -> 10
   _          -> 0
@@ -365,6 +365,8 @@ isSpoiled :: Turn -> Item -> Bool
 isSpoiled turn item = case item^.itemType of
   Chicken ->
     age - frozen_quotient - (refrigerated_quotient - refrigerated_quotient `div` 10) > 500
+  Potato ->
+    age - frozen_quotient - (refrigerated_quotient - refrigerated_quotient `div` 10) > 3000
   _ -> False
  where
   age = turnToInt $ turn - item^.creationTurn
