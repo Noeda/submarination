@@ -598,7 +598,7 @@ gmAttemptPurchase gs = do
 
   guard (shells >= itemPrice item_selection)
 
-  let add_purchase_text item = gsAddMessage ("Purchased " <> itemName item Singular <> " for " <> show (itemPrice item) <> " shells.") :: GameState -> GameState
+  let add_purchase_text item = gsAddMessage ("Purchased " <> itemName (gs^.turn) item Singular <> " for " <> show (itemPrice item) <> " shells.") :: GameState -> GameState
 
   if isItemBulky item_selection
     then do
@@ -798,7 +798,7 @@ gePutInItemsByMenu gs = do
   items <- toFailing $ gmCurrentlySelectedItems gs
 
   go items gs <&> gsAddMessage (case items of
-    [single_item] -> "Put in " <> itemName single_item Singular <> "."
+    [single_item] -> "Put in " <> itemName (gs^.turn) single_item Singular <> "."
     [] -> ""
     many_items -> "Put in " <> show (length many_items) <> " items.")
  where
@@ -817,7 +817,7 @@ geTakeOutItemsByMenu gs = do
   items <- toFailing $ gmCurrentlySelectedItems gs
 
   go items gs <&> gsAddMessage (case items of
-    [single_item] -> "Took out " <> itemName single_item Singular <> "."
+    [single_item] -> "Took out " <> itemName (gs^.turn) single_item Singular <> "."
     [] -> ""
     many_items -> "Took out " <> show (length many_items) <> " items.")
  where
@@ -845,7 +845,7 @@ gePickUpItemByMenu gs = do
   items <- toFailing $ gmCurrentlySelectedItems gs
 
   go items gs <&> gsAddMessage (case items of
-    [single_item] -> "Picked up " <> itemName single_item Singular <> "."
+    [single_item] -> "Picked up " <> itemName (gs^.turn) single_item Singular <> "."
     [] -> ""
     many_items -> "Picked up " <> show (length many_items) <> " items.")
  where
@@ -862,7 +862,7 @@ geEatInventoryItemByMenu gs = do
   guardE (length edibles == 1) "Cannot eat more than one edible at a time."
 
   let [edible] = edibles
-  geEatItem edible gs <&> gsAddMessage ("Ate " <> itemName edible Singular <> ".")
+  geEatItem edible gs <&> gsAddMessage ("Ate " <> itemName (gs^.turn) edible Singular <> ".")
 
 geDropInventoryItemByMenu :: GameState -> Failing GameState
 geDropInventoryItemByMenu gs = do
@@ -870,7 +870,7 @@ geDropInventoryItemByMenu gs = do
   items <- addFail (gmCurrentlySelectedItems gs) "No currently selected items."
 
   go items gs <&> gsAddMessage (case items of
-    [single_item] -> "Dropped " <> itemName single_item Singular <> "."
+    [single_item] -> "Dropped " <> itemName (gs^.turn) single_item Singular <> "."
     [] -> ""
     many_items -> "Dropped " <> show (length many_items) <> " items.")
  where
@@ -951,7 +951,7 @@ menuItemHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
   , quickEnterAction = \gs -> case filter (not . isItemBulky) $ gs^.itemsAtPlayer of
       [single_item] -> gs ^?
         to (gmPickUpItem single_item)._Just.
-        to (gsAddMessage $ "Picked up " <> itemName single_item Singular <> ".")
+        to (gsAddMessage $ "Picked up " <> itemName (gs^.turn) single_item Singular <> ".")
       _ -> Nothing }
 
 menuItemHandler ContainerTakeOut = (defaultItemHandler ContainerTakeOut activeMenuInventory)

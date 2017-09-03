@@ -528,11 +528,14 @@ renderItemMenu item_handler = do
     ([T.singleton $ toUpper ch], text, Okay)
 
   renderArrowedItem item = do
+    curturn <- gr gsTurn
+
     appendText 2 0 Vivid Green Dull Black "➔"
-    lift $ lift $ setText 53 6 Vivid White Dull Black $ itemName item Singular
+    lift $ lift $ setText 53 6 Vivid White Dull Black $ itemName curturn item Singular
     void $ lift $ lift $ setWrappedText 53 8 25 Dull White Dull Black $ itemDescription item
 
   multiSelectRender gitems = do
+    curturn <- gr gsTurn
     cursor <- gr gmMenuCursor
     selections <- fromMaybe M.empty <$> gr gmMenuSelections
 
@@ -550,8 +553,8 @@ renderItemMenu item_handler = do
         renderArrowedItem item
 
       if count == 1
-        then appendText 8 1 fintensity Yellow Dull Black $ itemName item Singular
-        else appendText 8 1 fintensity Yellow Dull Black $ show count <> " " <> itemName item Many
+        then appendText 8 1 fintensity Yellow Dull Black $ itemName curturn item Singular
+        else appendText 8 1 fintensity Yellow Dull Black $ show count <> " " <> itemName curturn item Many
 
     gs <- gr identity
 
@@ -559,6 +562,7 @@ renderItemMenu item_handler = do
     renderKeyInstructions ([(T.singleton <$> (toUpper <$> S.toList (offKeys item_handler)), "Cancel", Okay), (["SPACE"], "Select", Okay)] <> actionInstructions gs <> otherInstructions gs) 2
 
   singleOrNotSelectableSelectRender is_single gitems = do
+    curturn <- gr gsTurn
     selection <- gr gmMenuCursor
 
     for_ (zip [0..] (M.assocs gitems)) $ \(index, (item, count)) -> do
@@ -570,8 +574,8 @@ renderItemMenu item_handler = do
         renderArrowedItem item
 
       if count == 1
-        then appendText 4 1 fintensity Yellow Dull Black $ itemName item Singular
-        else appendText 4 1 fintensity Yellow Dull Black $ show count <> " " <> itemName item Many
+        then appendText 4 1 fintensity Yellow Dull Black $ itemName curturn item Singular
+        else appendText 4 1 fintensity Yellow Dull Black $ show count <> " " <> itemName curturn item Many
 
     gs <- gr identity
 
@@ -637,6 +641,8 @@ renderItemPileHud :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderItemPileHud = do
   player_pos <- gr (^.glPlayer.playerPosition)
   items <- gr (^.glItemsAt player_pos)
+  curturn <- gr gsTurn
+
   case items of
     [] -> return ()
     [_single_item] ->
@@ -648,8 +654,8 @@ renderItemPileHud = do
 
   ifor_ grouped $ \item count ->
     if count > 1
-      then appendText 53 1 Dull White Dull Black $ show count <> " " <> itemName item Many
-      else appendText 53 1 Dull White Dull Black $ itemName item Singular
+      then appendText 53 1 Dull White Dull Black $ show count <> " " <> itemName curturn item Many
+      else appendText 53 1 Dull White Dull Black $ itemName curturn item Singular
 
   appendText 53 1 Dull White Dull Black ""
 
@@ -684,7 +690,9 @@ renderDragging = gr (^.glPlayer.playerDragging) >>= \case
   Nothing -> return ()
 
   Just bulky_item -> do
-    appendText 53 2 Vivid White Dull Black $ "Dragging: " <> itemName bulky_item Singular
+    curturn <- gr gsTurn
+
+    appendText 53 2 Vivid White Dull Black $ "Dragging: " <> itemName curturn bulky_item Singular
     appendText 53 0 Dull White Dull Black "[ ] Stop"
     appendText 54 2 Vivid Green Dull Black "G"
 
@@ -696,7 +704,7 @@ renderMessages =
 
 renderTurn :: GameMonadRoTerminal s ()
 renderTurn = do
-  current_turn <- gr gsTurn
+  current_turn <- turnToInt <$> gr gsTurn
 
   let turn_text = "T: " <> show current_turn
   lift $ setText (80-textWidth turn_text) 0 Vivid White Dull Black turn_text
@@ -759,11 +767,11 @@ renderAdditionalHud creature_count = do
         let item = itemFromType curturn itemtype
         if selection_num == menu_selection
           then do appendText 2 0 Vivid Green Dull Black "➔"
-                  appendText 4 0 Vivid Blue Dull Black (itemName item Singular)
+                  appendText 4 0 Vivid Blue Dull Black (itemName curturn item Singular)
                   withSide RightSide $ do
-                    appendText 53 2 Vivid White Dull Black (itemName item Singular)
+                    appendText 53 2 Vivid White Dull Black (itemName curturn item Singular)
                     appendWrappedText 53 2 25 Dull White Dull Black (itemDescription item)
-          else appendText 4 0 Dull Blue Dull Black (itemName item Singular)
+          else appendText 4 0 Dull Blue Dull Black (itemName curturn item Singular)
 
         appendText 24 0 Vivid Yellow Dull Black "$"
         appendText 25 1 Vivid White Dull Black $ show $ itemPrice item

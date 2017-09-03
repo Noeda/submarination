@@ -141,8 +141,12 @@ groupItems = foldr folder M.empty
 ungroupItems :: Ord a => M.Map a Int -> [a]
 ungroupItems = concatMap (\(key, value) -> replicate value key) . M.assocs
 
-itemName :: Item -> Plural -> Text
-itemName item plural = go (item^.itemType) plural
+itemName :: Turn -> Item -> Plural -> Text
+itemName turn item plural =
+  go (item^.itemType) plural <>
+  if isSpoiled turn item
+    then " (spoiled)"
+    else ""
  where
   go SardineTin      Singular      = "a tin of sardines"
   go SardineTin      Many          = "tins of sardines"
