@@ -103,7 +103,10 @@ module Submarination.GameState
   , gsIsVendoring
   , gmAttemptPurchase
   , gmCurrentVendorCreature
-  , glCurrentVendorMenuSelection )
+  , glCurrentVendorMenuSelection
+
+  -- ** Tests
+  , tests )
   where
 
 import Control.Monad.Trans.Except
@@ -118,13 +121,14 @@ import qualified Data.Set as S
 import Linear.V2
 import qualified Prelude as E
 import Protolude hiding ( (&), to )
+import Test.Framework
 
 import Submarination.Biome.IntertidalZone
 import Submarination.Creature
 import Submarination.Direction
 import Submarination.GameState.Types
 import Submarination.Index
-import Submarination.Item
+import Submarination.Item hiding ( tests )
 import Submarination.Level
 import Submarination.Random
 import Submarination.Sub
@@ -154,6 +158,7 @@ initialGameState = gsIndexUnindexedCreatures $ GameState
   , _inputTurn = turn1
   , _runningIndex = firstIndex
   , _godMode = False
+  , _miscObjects = M.empty
   , _levels = M.fromList
                 [(0, surfaceLevel)
                 ,(50, rebase (V2 70 70) intertidalZone)]
@@ -832,7 +837,7 @@ geTakeOutItemsByMenu gs = do
  where
   go [] gs = pure gs
   go (item:rest) gs' = do
-    container <- toFailing $ gs^.gllAtPlayer glBulkyItemAt
+    container <- toFailing $ gs'^.gllAtPlayer glBulkyItemAt
     (new_container, removed_item) <- removeItem (gs'^.turn) item container
     gs <- geAddItemInventory removed_item gs'
     go rest $ gs & gllAtPlayer glBulkyItemAt .~ Just new_container
@@ -1163,4 +1168,10 @@ gsIndexUnindexedCreatures gs = flip execState gs $ do
 
 gsDepth :: GameState -> Int
 gsDepth = (^.depth)
+
+-------------------
+-- *** TESTS *** --
+
+tests :: [Test]
+tests = []
 

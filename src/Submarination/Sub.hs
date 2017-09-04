@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+
 module Submarination.Sub
   ( SubTopology()
   , removeNonAirLockDoors
@@ -24,6 +26,7 @@ module Submarination.Sub
   where
 
 import Control.Lens hiding ( Level )
+import Data.Binary ( Binary )
 import Data.Data
 import Linear.V2
 import qualified Prelude as E
@@ -39,7 +42,7 @@ data SubTopology
   | AirLock !Level
   | Composition !SubTopology !SubTopology !(V2 Int) (V2 Int)
   | Rotate90 !SubTopology
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 isAirLock :: SubTopology -> Bool
 isAirLock AirLock{} = True

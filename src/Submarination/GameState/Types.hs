@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+
 module Submarination.GameState.Types
   ( GameState(..)
   , player
@@ -14,6 +16,8 @@ module Submarination.GameState.Types
   , runningIndex
   , levels
   , godMode
+  , MiscObject(..)
+  , glMiscObjectAt
   , Sub(..)
   , subTopology
   , subPosition
@@ -47,6 +51,7 @@ module Submarination.GameState.Types
   where
 
 import Control.Lens hiding ( Level, levels, Index )
+import Data.Binary
 import Data.Data
 import qualified Data.Map.Strict as M
 import Data.Maybe
@@ -70,14 +75,14 @@ data ActiveMenuState
   | ContainerPutIn
   | StartDive
   | MicrowaveMenu
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum, Binary )
 
 data Sub = Sub
   { _subTopology :: !SubTopology
   , _subPosition :: !(V2 Int)
   , _subDiving   :: !Bool
   , _subEnergy   :: !Int }
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 data GameState = GameState
   { _player              :: Player
@@ -93,9 +98,10 @@ data GameState = GameState
   , _inputTurn           :: Turn
   , _godMode             :: Bool
   , _runningIndex        :: Index
+  , _miscObjects         :: M.Map Int (M.Map (V2 Int) MiscObject)
   , _levels              :: M.Map Int Level
   , _messages            :: M.Map Turn Text }
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 data Player = Player
   { _playerPosition      :: (V2 Int)
@@ -106,17 +112,43 @@ data Player = Player
   , _playerInventory     :: [Item]
   , _playerDragging      :: (Maybe Item)
   , _playerHunger        :: Int }
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
+
+data MiscObject
+  = Cable
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 data Status
   = Slow
   | Hungry
   | Starving
   | Satiated
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum, Binary )
 makeLenses ''GameState
 makeLenses ''Player
 makeLenses ''Sub
+
+glMiscObjectAt :: V2 Int -> Lens' GameState (Maybe MiscObject)
+glMiscObjectAt pos = lens get_it set_it
+ where
+  get_it gs = gs^?miscObjects.at (gs^.depth)._Just.at pos._Just
+
+  set_it gs Nothing =
+    case gs^.miscObjects.at (gs^.depth) of
+      Nothing -> gs
+      Just old_misc_objects ->
+        let new_misc_objects = old_misc_objects & at pos .~ Nothing
+         in if M.null new_misc_objects
+              then gs & miscObjects.at (gs^.depth) .~ Nothing
+              else gs & miscObjects.at (gs^.depth) .~ Just new_misc_objects
+
+  set_it gs (Just v) =
+    case gs^.miscObjects.at (gs^.depth) of
+      Nothing -> gs & miscObjects.at (gs^.depth) .~ Just (M.singleton pos v)
+      Just old_misc_objects ->
+        let new_misc_objects = old_misc_objects & at pos .~ Just v
+         in gs & miscObjects.at (gs^.depth) .~ Just new_misc_objects
+{-# INLINEABLE glMiscObjectAt #-}
 
 glCellAt :: V2 Int -> Lens' GameState LevelCell
 glCellAt = subOrLevelLens cellAt subCellP
