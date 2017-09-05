@@ -34,6 +34,7 @@ library
                       Submarination.Random.Common
                       Submarination.Render
                       Submarination.Sub
+                      Submarination.Tension
                       Submarination.Turn
                       Submarination.Vendor
                       Submarination.Voronoi

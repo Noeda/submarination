@@ -13,6 +13,7 @@ import Protolude hiding ( to, drop )
 
 import Submarination.Creature
 import Submarination.GameState
+import Submarination.Item
 import Submarination.Key
 import Submarination.Render
 import Submarination.Terminal
@@ -133,12 +134,13 @@ drag = use (glPlayer.playerDragging) >>= \case
 
   startDragging =
     use (gllAtPlayer glBulkyItemAt) >>= \case
-      Nothing -> return ()
-      Just bulky_item -> do
+      Just bulky_item | canPickUpOrDrag bulky_item -> do
         gllAtPlayer glBulkyItemAt .= Nothing
         glPlayer.playerDragging .= Just bulky_item
 
         modify gsAdvanceTurn
+
+      _ -> return ()
 
 itemTrigger :: Monad m => ActiveMenuState -> GameMonad m ()
 itemTrigger = modifyConditional . gmEnterMenu

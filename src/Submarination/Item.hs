@@ -17,6 +17,7 @@ module Submarination.Item
   , groupItems
   , putItem
   , removeItem
+  , canPickUpOrDrag
   , isSpoiled
   , isMicrowave
   , microwaveItem
@@ -70,7 +71,7 @@ data ItemType
   | Explosives
   | Taser
   | Harpoon
-  | WinchAndCable
+  | WinchAndCable Bool
   | HullParts
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 makeLenses ''Item
@@ -117,7 +118,7 @@ itemTypeArbitrary tree_division =
         ,pure Explosives
         ,pure Taser
         ,pure Harpoon
-        ,pure WinchAndCable
+        ,WinchAndCable <$> arbitrary
         ,pure HullParts]
  where
   itemsArbitrary = scale (`div` tree_division) $ listOf $ itemArbitrary (tree_division+1)
@@ -184,8 +185,10 @@ itemName turn item plural =
   go SkeletonCorpse Many           = "skeletal remains"
   go PlantPersonCorpse Singular    = "plantperson corpse"
   go PlantPersonCorpse Many        = "plantperson corpses"
-  go WinchAndCable Singular        = "a winch and cable"
-  go WinchAndCable Many            = "winches and cables"
+  go (WinchAndCable False) Singular = "a winch and cable"
+  go (WinchAndCable False) Many    = "winches and cables"
+  go (WinchAndCable True) Singular = "a winch and cable (anchored)"
+  go (WinchAndCable True) Many     = "winches and cables (anchored)"
   go Explosives Singular           = "explosives"
   go Explosives Many               = "explosives"
   go Taser Singular                = "a taser"
@@ -229,7 +232,7 @@ itemDescription item = go $ item^.itemType
             in if num_items > 1
                  then " This box contains " <> show (length inner_items) <> " items."
                  else " This box contains 1 item."
-  go WinchAndCable =
+  go WinchAndCable{}  =
     "A winch and a cable. Tie it on yourself when you leave airlock and it can quickly pull you back in case of danger."
   go Explosives =
     "Most personal problems can be solved with a healthy dose of volatile explosives."
@@ -267,7 +270,7 @@ itemPrice item = go $ item^.itemType
   go PlantPersonCorpse = 0
   go Taser = 400
   go Explosives = 500
-  go WinchAndCable = 300
+  go (WinchAndCable _) = 300
   go HullParts = 150
   go Harpoon = 500
 
@@ -285,6 +288,7 @@ itemStorageLimit item = go $ item^.itemType
 isItemBulky :: Item -> Bool
 isItemBulky item = go $ item^.itemType
  where
+  go WinchAndCable{} = True
   go StorageBox{} = True
   go Freezer{} = True
   go Refrigerator{} = True
@@ -442,6 +446,14 @@ microwaveItem turn item = case item^.itemType of
   Chicken -> Just $ itemFromType turn CookedChicken
   _ -> Nothing
 
+isMicrowave :: ItemType -> Bool
+isMicrowave Microwave{} = True
+isMicrowave _ = False
+
+canPickUpOrDrag :: Item -> Bool
+canPickUpOrDrag (_itemType -> WinchAndCable True) = False
+canPickUpOrDrag _ = True
+
 -------------------
 -- *** TESTS *** --
 
@@ -474,8 +486,4 @@ testCanonicalizedRefrigeratedHistory item turn' =
   let max_turn = maximum $ (item^.creationTurn):(fmap intToTurn $ IM.keys $ item^.refrigeratedHistory)
       turn = turn' + max_turn
    in unfrozenQuotient turn item == unfrozenQuotient turn (canonicalizeFrozenHistory refrigeratedHistory item turn)
-
-isMicrowave :: ItemType -> Bool
-isMicrowave Microwave{} = True
-isMicrowave _ = False
 

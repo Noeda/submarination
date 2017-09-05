@@ -31,7 +31,7 @@ vendorItems FoodVendor =
   ,Microwave []
   ,Whiskey]
 vendorItems ToolVendor =
-  [WinchAndCable]
+  [WinchAndCable False]
 vendorItems AmmoVendor =
   [Taser
   ,Explosives]

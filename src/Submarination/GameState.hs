@@ -39,6 +39,11 @@ module Submarination.GameState
   , geAddItemInventory
   , glBulkyItemAt
   , inventoryLimit
+  -- ** Cables objects
+  , glCableAt
+  , gmTopCableOrientation
+  , gmTopCableCornering
+  , Cable(..)
   -- * Predefined levels
   , surfaceLevel
   -- * Statuses
@@ -113,9 +118,10 @@ import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Control.Lens hiding ( Level, levels, Index )
 import Data.Hashable
+import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.List ( (!!), delete )
+import Data.List ( (!!), delete, last )
 import qualified Data.IntSet as IS
 import qualified Data.Set as S
 import Linear.V2
@@ -132,6 +138,7 @@ import Submarination.Item hiding ( tests )
 import Submarination.Level
 import Submarination.Random
 import Submarination.Sub
+import Submarination.Tension hiding ( tests )
 import Submarination.Turn
 import Submarination.Vendor
 
@@ -147,7 +154,8 @@ initialGameState = gsIndexUnindexedCreatures $ GameState
                      , _playerShells = 1000
                      , _playerHunger = initialHungerLevel
                      , _playerInventory = []
-                     , _playerDragging = Nothing }
+                     , _playerDragging = Nothing
+                     , _playerTethered = Nothing }
   , _activeMenuState = M.empty
   , _activeMenuInventory = []
   , _activeMenuCounter = Nothing
@@ -158,7 +166,7 @@ initialGameState = gsIndexUnindexedCreatures $ GameState
   , _inputTurn = turn1
   , _runningIndex = firstIndex
   , _godMode = False
-  , _miscObjects = M.empty
+  , _cables = M.empty
   , _levels = M.fromList
                 [(0, surfaceLevel)
                 ,(50, rebase (V2 70 70) intertidalZone)]
@@ -360,6 +368,7 @@ gsAdvanceTurn gs =
       gs <- get
       player.playerHealth .= (gs^.player.playerMaximumHealth)
       player.playerOxygen .= (gs^.to gsMaximumOxygenLevel)
+      player.playerHunger .= 600
 
   walkActiveMetadata :: forall s. RandomSupplyT (StateT GameState (ST s)) ()
   walkActiveMetadata = do
@@ -399,9 +408,10 @@ gsAdvanceTurn gs =
   walkLevel (lvl, offset) = do
     current_turn <- use turn
     playerpos <- use $ player.playerPosition
+    gs <- get
 
     walkLevelActiveMetadata lvl $ \coords cell metadata -> return $ case (cell, metadata) of
-      (OpenHatch, HatchAutoClose close_turn) | close_turn <= current_turn && null (lvl^.itemsAt coords) && playerpos /= coords + offset ->
+      (OpenHatch, HatchAutoClose close_turn) | close_turn <= current_turn && null (lvl^.itemsAt coords) && playerpos /= coords + offset && IM.null (gs^.glCablesAt (coords + offset)) ->
         (Hatch, Nothing)
       (OpenHatch, metadata@HatchAutoClose{}) ->
         (OpenHatch, Just metadata)
@@ -484,13 +494,72 @@ gmMoveToDirection direction gs = flip evalState gs $ runMaybeT $ do
     bulky_at_target <- use (glBulkyItemAt new_playerpos.to isJust)
 
     when (walkable && not occupied && not (bulky_at_target && dragging)) $ do
+      old_playerpos <- use $ player.playerPosition
       player.playerPosition .= new_playerpos
 
       -- Moving takes extra time if we are slow
       slow <- use $ to gsIsSlow
       when slow $ identity %= gsAdvanceTurn
 
+      -- Pull cable, if we are cabled
+      use (player.playerTethered) >>= \case
+        Just cable_index -> pullTether old_playerpos new_playerpos cable_index
+        _ -> return ()
+
       identity %= gsAdvanceTurn
+
+  pullTether old_playerpos new_playerpos cable_index = do
+    gs <- get
+    case cableToList old_playerpos cable_index gs of
+      Nothing -> return ()
+      Just cable_positions -> do
+        case pullTension (\pos -> not $ isWalkable (gs^.glCellAt pos))
+                         new_playerpos
+                         cable_positions of
+          Nothing -> return ()
+          Just pulled_cable_positions ->
+            modify $ putNewCableToList cable_positions pulled_cable_positions cable_index
+
+putNewCableToList :: [V2 Int] -> [V2 Int] -> Index -> GameState -> GameState
+putNewCableToList old_cablelist cablelist index = execState $ do
+  for_ old_cablelist $ \old_pos ->
+    glCableAt index old_pos .= IM.empty
+
+  go End cablelist 0
+ where
+  origin = last old_cablelist
+
+  go _ [] _ = return ()
+  go prev [x] cpos =
+    if x == origin
+      then glCableAt index x %= IM.insert cpos (Cable cpos index End prev)
+      else do glCableAt index x %= IM.insert cpos (Cable cpos index (CableAt origin) prev)
+              glCableAt index origin %= IM.insert (cpos-1) (Cable (cpos-1) index End (CableAt x))
+  go prev (x:y:rest) cpos = do
+    glCableAt index x %= IM.insert cpos (Cable cpos index (CableAt y) prev)
+    go (CableAt x) (y:rest) (cpos-1)
+
+cableToList :: V2 Int -> Index -> GameState -> Maybe [V2 Int]
+cableToList pos index gs = do
+  top_cable <- gsTopCableAt index pos gs
+  go pos (top_cable^.cablePosition)
+ where
+  go pos cpos = do
+    cable <- gs^.glCableAt index pos.at cpos
+    (pos:) <$> case cable^.cableNext of
+      End -> pure []
+      CableAt nextpos -> go nextpos (cpos-1)
+
+cableToList' :: V2 Int -> Index -> GameState -> Maybe [V2 Int]
+cableToList' pos index gs = do
+  top_cable <- gsTopCableAt index pos gs
+  traceShow top_cable $ go pos (top_cable^.cablePosition)
+ where
+  go pos cpos = do
+    cable <- gs^.glCableAt index pos.at cpos
+    (pos:) <$> case cable^.cableNext of
+      End -> pure []
+      CableAt nextpos -> go nextpos (cpos-1)
 
 surfaceLevel :: Level
 surfaceLevel = levelFromStringsPlacements SurfaceWater placements
@@ -641,7 +710,8 @@ gmActiveMenuHandler gs =
   ch ContainerPutIn <|>
   ch ContainerTakeOut <|>
   ch StartDive <|>
-  ch MicrowaveMenu
+  ch MicrowaveMenu <|>
+  ch Anchor
  where
   ch ms = case gs^.activeMenuState.at ms of
     Nothing -> Nothing
@@ -657,6 +727,7 @@ gmActiveMenu gs =
      | ContainerPutIn      `M.member` menus -> Just ContainerPutIn
      | ContainerTakeOut    `M.member` menus -> Just ContainerTakeOut
      | StartDive           `M.member` menus -> Just StartDive
+     | Anchor              `M.member` menus -> Just Anchor
 
      | otherwise -> Nothing
  where
@@ -1025,6 +1096,23 @@ menuItemHandler MicrowaveMenu = (defaultItemHandler MicrowaveMenu activeMenuInve
   , toActiveMenuInventory = \gs -> fromMaybe [] $ gs^?gllAtPlayer glBulkyItemAt._Just.itemContents
   }
 
+menuItemHandler Anchor = (defaultItemHandler Anchor activeMenuInventory)
+  { triggerKeys   = S.fromList "w"
+  , menuName      = "Anchor"
+  , selectMode    = NotSelectable
+  , menuKeys      = M.empty
+  , prerequisites = \gs -> gmActiveMenu gs == Nothing &&
+                           gs^?player.playerDragging._Just.itemType == Just (WinchAndCable False) &&
+                           gs^.gllAtPlayer glBulkyItemAt == Nothing
+  , quickEnterAction = Just . execState (do
+      old_item <- use (player.playerDragging)
+      gllAtPlayer glBulkyItemAt .= (old_item & _Just.itemType .~ WinchAndCable True)
+      player.playerDragging .= Nothing
+      idx <- nextGSIndex
+      player.playerTethered .= Just idx
+      gllAtPlayer (glCableAt idx) .= (IM.singleton 0 $ Cable 0 idx End End))
+  }
+
 geMicrowave :: GameState -> Failing GameState
 geMicrowave gs = do
   guardE ((isMicrowave <$> (gs^?gllAtPlayer glBulkyItemAt._Just.itemType)) == Just True) "No microwave nearby."
@@ -1174,4 +1262,22 @@ gsDepth = (^.depth)
 
 tests :: [Test]
 tests = []
+
+gmTopCableOrientation :: V2 Int -> GameState -> Maybe Direction
+gmTopCableOrientation pos gs =
+  case gs^.glCablesAt pos of
+    cables | Just (im, _) <- IM.maxView cables ->
+      case IM.maxView im of
+        Just (Cable _ _ (CableAt next) (CableAt _prev), _) -> deltaToDirection pos next
+        _ -> Nothing
+    _ -> Nothing
+
+gmTopCableCornering :: V2 Int -> GameState -> Maybe Cornering
+gmTopCableCornering pos gs =
+  case gs^.glCablesAt pos of
+    cables | Just (im, _) <- IM.maxView cables ->
+      case IM.maxView im of
+        Just (Cable _ _ (CableAt next) (CableAt prev), _) -> deltaToCornering prev pos next
+        _ -> Nothing
+    _ -> Nothing
 

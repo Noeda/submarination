@@ -1,7 +1,10 @@
 module Submarination.Direction
   ( Direction(..)
+  , Cornering(..)
   , allNeighbours
   , directionToDelta
+  , deltaToDirection
+  , deltaToCornering
   , move1V2 )
   where
 
@@ -45,4 +48,45 @@ directionToDelta D7 = V2 (-1) (-1)
 directionToDelta D9 = V2 1 (-1)
 directionToDelta D3 = V2 1 1
 directionToDelta D1 = V2 (-1) 1
+
+data Cornering
+ = Vertical
+ | Horizontal
+ | SECorner
+ | SWCorner
+ | NECorner
+ | NWCorner
+ | SWNE
+ | SENW
+ deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
+
+deltaToCornering :: V2 Int -> V2 Int -> V2 Int -> Maybe Cornering
+deltaToCornering a@(V2 ax ay) m b@(V2 bx by) =
+  if | ax == bx && abs (ay-by) == 2 -> Just Vertical
+     | ay == by && abs (ax-bx) == 2 -> Just Horizontal
+     | b-m == V2 1 0    && a-m == V2 0 1       -> Just SECorner
+     | b-m == V2 (-1) 0 && a-m == V2 0 1       -> Just SWCorner
+     | b-m == V2 1 0    && a-m == V2 0 (-1)    -> Just NECorner
+     | b-m == V2 (-1) 0 && a-m == V2 (-1) (-1) -> Just NWCorner
+     | a-m == V2 1 0    && b-m == V2 0 1       -> Just SECorner
+     | a-m == V2 (-1) 0 && b-m == V2 0 1       -> Just SWCorner
+     | a-m == V2 1 0    && b-m == V2 0 (-1)    -> Just NECorner
+     | a-m == V2 (-1) 0 && b-m == V2 (-1) (-1) -> Just NWCorner
+     | a-m == V2 1 1    && b-m == V2 (-1) (-1) -> Just SENW
+     | a-m == V2 1 (-1) && b-m == V2 (-1) 1    -> Just SWNE
+     | b-m == V2 1 1    && a-m == V2 (-1) (-1) -> Just SENW
+     | b-m == V2 1 (-1) && a-m == V2 (-1) 1    -> Just SWNE
+     | otherwise -> Nothing
+
+deltaToDirection :: V2 Int -> V2 Int -> Maybe Direction
+deltaToDirection a b =
+  if | a + V2 0 1 == b       -> Just D2
+     | a + V2 0 (-1) == b    -> Just D8
+     | a + V2 1 0 == b       -> Just D6
+     | a + V2 (-1) 0 == b    -> Just D4
+     | a + V2 1 1 == b       -> Just D3
+     | a + V2 (-1) 1 == b    -> Just D1
+     | a + V2 (-1) (-1) == b -> Just D7
+     | a + V2 1 (-1) == b    -> Just D9
+     | otherwise -> Nothing
 

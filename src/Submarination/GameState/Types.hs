@@ -16,8 +16,15 @@ module Submarination.GameState.Types
   , runningIndex
   , levels
   , godMode
-  , MiscObject(..)
-  , glMiscObjectAt
+  , Cable(..)
+  , CableNext(..)
+  , gsTopCableAt
+  , glCableAt
+  , glCablesAt
+  , glCableIndex
+  , cableNext
+  , cablePrevious
+  , cablePosition
   , Sub(..)
   , subTopology
   , subPosition
@@ -32,6 +39,7 @@ module Submarination.GameState.Types
   , playerInventory
   , playerDragging
   , playerHunger
+  , playerTethered
   , Status(..)
   , ActiveMenuState(..)
   , ItemMenuHandler(..)
@@ -55,6 +63,7 @@ import Data.Binary
 import Data.Data
 import qualified Data.Map.Strict as M
 import Data.Maybe
+import qualified Data.IntMap.Strict as IM
 import qualified Data.Set as S
 import Linear.V2
 import Protolude hiding ( (&) )
@@ -75,6 +84,7 @@ data ActiveMenuState
   | ContainerPutIn
   | StartDive
   | MicrowaveMenu
+  | Anchor
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum, Binary )
 
 data Sub = Sub
@@ -98,7 +108,7 @@ data GameState = GameState
   , _inputTurn           :: Turn
   , _godMode             :: Bool
   , _runningIndex        :: Index
-  , _miscObjects         :: M.Map Int (M.Map (V2 Int) MiscObject)
+  , _cables              :: M.Map Int (M.Map (V2 Int) (IM.IntMap (IM.IntMap Cable)))
   , _levels              :: M.Map Int Level
   , _messages            :: M.Map Turn Text }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
@@ -111,11 +121,20 @@ data Player = Player
   , _playerShells        :: Int
   , _playerInventory     :: [Item]
   , _playerDragging      :: (Maybe Item)
-  , _playerHunger        :: Int }
+  , _playerHunger        :: Int
+  , _playerTethered      :: Maybe Index }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
-data MiscObject
-  = Cable
+data CableNext
+  = End
+  | CableAt (V2 Int)
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
+
+data Cable = Cable
+  { _cablePosition :: Int
+  , _cableIndex    :: Index
+  , _cableNext     :: CableNext
+  , _cablePrevious :: CableNext }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 data Status
@@ -127,28 +146,51 @@ data Status
 makeLenses ''GameState
 makeLenses ''Player
 makeLenses ''Sub
+makeLenses ''Cable
 
-glMiscObjectAt :: V2 Int -> Lens' GameState (Maybe MiscObject)
-glMiscObjectAt pos = lens get_it set_it
+glCableIndex :: Lens' Cable Index
+glCableIndex = cableIndex
+
+gsTopCableAt :: Index -> V2 Int -> GameState -> Maybe Cable
+gsTopCableAt index pos gs =
+  let im = gs^.glCableAt index pos
+   in case IM.maxView im of
+        Nothing             -> Nothing
+        Just (cable, _rest) -> Just cable
+
+glCableAt :: Index -> V2 Int -> Lens' GameState (IM.IntMap Cable)
+glCableAt index pos = lens get_it set_it
  where
-  get_it gs = gs^?miscObjects.at (gs^.depth)._Just.at pos._Just
+  get_it gs =
+    fromMaybe IM.empty $ IM.lookup (toInt index) (gs^.glCablesAt pos)
 
-  set_it gs Nothing =
-    case gs^.miscObjects.at (gs^.depth) of
+  set_it :: GameState -> IM.IntMap Cable -> GameState
+  set_it gs im | IM.null im = gs & glCablesAt pos %~ IM.delete (toInt index)
+  set_it gs cable' =
+    let cable = cable' & each.cableIndex .~ index
+     in gs & glCablesAt pos %~ IM.insert (toInt index) cable
+
+glCablesAt :: V2 Int -> Lens' GameState (IM.IntMap (IM.IntMap Cable))
+glCablesAt pos = lens get_it set_it
+ where
+  get_it gs = fromMaybe IM.empty $ gs^?cables.at (gs^.depth)._Just.at pos._Just
+
+  set_it gs im | IM.null im =
+    case gs^.cables.at (gs^.depth) of
       Nothing -> gs
       Just old_misc_objects ->
         let new_misc_objects = old_misc_objects & at pos .~ Nothing
          in if M.null new_misc_objects
-              then gs & miscObjects.at (gs^.depth) .~ Nothing
-              else gs & miscObjects.at (gs^.depth) .~ Just new_misc_objects
+              then gs & cables.at (gs^.depth) .~ Nothing
+              else gs & cables.at (gs^.depth) .~ Just new_misc_objects
 
-  set_it gs (Just v) =
-    case gs^.miscObjects.at (gs^.depth) of
-      Nothing -> gs & miscObjects.at (gs^.depth) .~ Just (M.singleton pos v)
+  set_it gs im =
+    case gs^.cables.at (gs^.depth) of
+      Nothing -> gs & cables.at (gs^.depth) .~ Just (M.singleton pos im)
       Just old_misc_objects ->
-        let new_misc_objects = old_misc_objects & at pos .~ Just v
-         in gs & miscObjects.at (gs^.depth) .~ Just new_misc_objects
-{-# INLINEABLE glMiscObjectAt #-}
+        let new_misc_objects = old_misc_objects & at pos .~ Just im
+         in gs & cables.at (gs^.depth) .~ Just new_misc_objects
+{-# INLINEABLE glCablesAt #-}
 
 glCellAt :: V2 Int -> Lens' GameState LevelCell
 glCellAt = subOrLevelLens cellAt subCellP

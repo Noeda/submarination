@@ -27,6 +27,7 @@ import Protolude hiding ( to )
 import System.Timeout
 
 import Submarination.Creature
+import Submarination.Direction
 import Submarination.GameState
 import Submarination.Item
 import Submarination.MonotonicClock
@@ -161,6 +162,7 @@ renderGameState' monotonic_time_ns = do
                          then return M.empty
                          else do renderCurrentLevel monotonic_time_ns
                                  renderSub monotonic_time_ns
+                                 renderCables
                                  creatures <- renderCreatures
                                  renderPlayer
                                  return creatures
@@ -187,28 +189,29 @@ creatureToAppearance creature (Cell fintensity fcolor bintensity bcolor _) = cas
 itemToAppearance :: Item -> Cell
 itemToAppearance item = go $ item^.itemType
  where
-  go SardineTin           = Cell Dull Cyan Dull Black '%'
-  go Poylent              = Cell Vivid Cyan Dull Black '%'
-  go Chicken              = Cell Vivid Red Dull Black '%'
-  go CookedChicken        = Cell Dull Red Dull Black '%'
-  go Potato               = Cell Vivid Yellow Dull Black '%'
-  go Whiskey              = Cell Dull Yellow Dull Black '!'
-  go Freezer{}            = Cell Vivid Cyan Dull Black '■'
-  go Refrigerator{}       = Cell Dull Cyan Dull Black '■'
-  go Microwave{}          = Cell Vivid White Dull Black '■'
-  go (StorageBox [])      = Cell Dull White Dull Black '±'
-  go StorageBox{}         = Cell Dull White Dull Black '≡'
-  go WoundedCorpse        = Cell Vivid White Dull Red '@'
-  go MutilatedCorpse      = Cell Vivid White Dull Red '@'
-  go BloatedCorpse        = Cell Vivid Green Dull Red '@'
-  go PartiallyEatenCorpse = Cell Vivid Green Dull Red '%'
-  go SkeletonCorpse       = Cell Dull White Vivid Black '@'
-  go PlantPersonCorpse    = Cell Dull Green Dull Red 'P'
-  go HullParts            = Cell Dull Yellow Dull Black '['
-  go Explosives           = Cell Vivid Red Dull Black '≡'
-  go Taser                = Cell Vivid Blue Dull Black '('
-  go Harpoon              = Cell Dull White Dull Black '('
-  go WinchAndCable        = Cell Vivid Yellow Dull Black ']'
+  go SardineTin             = Cell Dull Cyan Dull Black '%'
+  go Poylent                = Cell Vivid Cyan Dull Black '%'
+  go Chicken                = Cell Vivid Red Dull Black '%'
+  go CookedChicken          = Cell Dull Red Dull Black '%'
+  go Potato                 = Cell Vivid Yellow Dull Black '%'
+  go Whiskey                = Cell Dull Yellow Dull Black '!'
+  go Freezer{}              = Cell Vivid Cyan Dull Black '■'
+  go Refrigerator{}         = Cell Dull Cyan Dull Black '■'
+  go Microwave{}            = Cell Vivid White Dull Black '■'
+  go (StorageBox [])        = Cell Dull White Dull Black '±'
+  go StorageBox{}           = Cell Dull White Dull Black '≡'
+  go WoundedCorpse          = Cell Vivid White Dull Red '@'
+  go MutilatedCorpse        = Cell Vivid White Dull Red '@'
+  go BloatedCorpse          = Cell Vivid Green Dull Red '@'
+  go PartiallyEatenCorpse   = Cell Vivid Green Dull Red '%'
+  go SkeletonCorpse         = Cell Dull White Vivid Black '@'
+  go PlantPersonCorpse      = Cell Dull Green Dull Red 'P'
+  go HullParts              = Cell Dull Yellow Dull Black '['
+  go Explosives             = Cell Vivid Red Dull Black '≡'
+  go Taser                  = Cell Vivid Blue Dull Black '('
+  go Harpoon                = Cell Dull White Dull Black '('
+  go (WinchAndCable False)  = Cell Vivid Yellow Dull Black '∞'
+  go (WinchAndCable True)   = Cell Vivid Yellow Dull Black '÷'
 
 reverseAppearance :: Cell -> Cell
 reverseAppearance (Cell fintensity fcolor bintensity bcolor ch) =
@@ -339,6 +342,30 @@ renderItemPile action [single_item] =
   action $ itemToAppearance single_item
 renderItemPile action (first_item:_rest) =
   action $ reverseAppearance $ itemToAppearance first_item
+
+renderCables :: GameMonadRoTerminal s ()
+renderCables = do
+  gs <- gr identity
+  V2 px py <- gr (^.glPlayer.playerPosition)
+
+  lift $ for_ [V2 x y | x <- [px-losDistance..px+losDistance], y <- [py-losDistance..py+losDistance]] $ \levelcoord@(V2 lx ly) -> do
+    let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) mapMiddleOnTerminal
+    case gs^.to (gmTopCableCornering levelcoord) of
+      Just dir -> case dir of
+        Vertical   -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '│'
+        Horizontal -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '─'
+        SECorner -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '┌'
+        NWCorner -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '┘'
+        SWCorner -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '┐'
+        NECorner -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '└'
+        SWNE     -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '/'
+        SENW     -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '\\'
+      _ -> case gs^.to (gmTopCableOrientation levelcoord) of
+        Just dir | dir == D8 || dir == D2 -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '│'
+        Just dir | dir == D4 || dir == D6 -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '─'
+        Just dir | dir == D1 || dir == D9 -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '/'
+        Just dir | dir == D3 || dir == D7 -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '\\'
+        _ -> return ()
 
 renderLevel :: Integer -> Level -> V2 Int -> GameMonadRoTerminal s ()
 renderLevel monotonic_time_ns level (V2 ox oy) = do
@@ -663,7 +690,7 @@ renderItemPileHud = do
 
   appendText 53 1 Dull White Dull Black ""
 
-  unless (not $ any isItemBulky items) $ do
+  unless (not $ any (\item -> canPickUpOrDrag item && isItemBulky item) items) $ do
     appendText 53 0 Dull White Dull Black "[ ] Drag"
     appendText 54 2 Vivid Green Dull Black "G"
 
