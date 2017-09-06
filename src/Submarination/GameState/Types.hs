@@ -8,6 +8,7 @@ module Submarination.GameState.Types
   , activeMenuInventory
   , activeMenuCounter
   , vendorMenu
+  , cables
   , depth
   , dead
   , deathReason
@@ -41,8 +42,8 @@ module Submarination.GameState.Types
   , playerHunger
   , playerTethered
   , Status(..)
-  , ActiveMenuState(..)
-  , ItemMenuHandler(..)
+  , Action(..)
+  , ActionHandler(..)
   , itemsAtPlayer
   , subOrLevelLens
   , glCellAt
@@ -75,7 +76,7 @@ import Submarination.Sub
 import Submarination.Terminal
 import Submarination.Turn
 
-data ActiveMenuState
+data Action
   = Pickup
   | Inventory
   | Drop
@@ -85,6 +86,8 @@ data ActiveMenuState
   | StartDive
   | MicrowaveMenu
   | Anchor
+  | UnAnchor
+  | RetractTether
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum, Binary )
 
 data Sub = Sub
@@ -94,10 +97,12 @@ data Sub = Sub
   , _subEnergy   :: !Int }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
+type ActionMenuSelections = (M.Map Int Int, Int)
+
 data GameState = GameState
   { _player              :: Player
   , _sub                 :: Sub
-  , _activeMenuState     :: M.Map ActiveMenuState (M.Map Int Int, Int)
+  , _activeMenuState     :: M.Map Action ActionMenuSelections
   , _activeMenuInventory :: [Item]
   , _activeMenuCounter   :: Maybe Int
   , _vendorMenu          :: Maybe Int
@@ -142,6 +147,7 @@ data Status
   | Hungry
   | Starving
   | Satiated
+  | God
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum, Binary )
 makeLenses ''GameState
 makeLenses ''Player
@@ -249,17 +255,17 @@ glCurrentLevel = lens get_it set_it
       else gs & levels.at (gs^.depth) .~ Just new_level
 {-# INLINE glCurrentLevel #-}
 
-data ItemMenuHandler = ItemMenuHandler
+data ActionHandler = ActionHandler
   { triggerKeys           :: S.Set Char
-  , menuName              :: Text
+  , menuName              :: GameState -> Text
+  , menuStateKey          :: !Action
+  , menuKeys              :: M.Map Char (Text, GameState -> Failing GameState)
+  , menuFilter            :: GameState -> Item -> Bool
+  , menuText              :: Text
   , offKeys               :: S.Set Char
   , quickEnterAction      :: GameState -> Maybe GameState
-  , menuStateKey          :: !ActiveMenuState
-  , menuKeys              :: M.Map Char (Text, GameState -> Failing GameState)
   , prerequisites         :: GameState -> Bool
   , selectMode            :: SelectMode
-  , menuFilter            :: GameState -> Item -> Bool
-  , menuText              :: !Text
   , toActiveMenuInventory :: GameState -> [Item]
   , otherKeys             :: GameState -> M.Map Char Text
   , itemLens              :: Lens' GameState [Item] }

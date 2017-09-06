@@ -9,7 +9,7 @@ import Data.Char
 import qualified Data.Map.Strict as M
 import qualified Data.Set as S
 import Prelude ( String )
-import Protolude hiding ( to, drop )
+import Protolude hiding ( to, drop, (&) )
 
 import Submarination.Creature
 import Submarination.GameState
@@ -38,6 +38,7 @@ splashScreen knob = do
     CharKey 'm' -> return ()
 #endif
     CharKey ' ' -> evalStateT (startGame knob) initialGameState
+    CharKey 'g' -> evalStateT (startGame knob) (initialGameState & glGodMode .~ True)
     _ -> splashScreen knob
 
 startGame :: MonadIO m => UpdateRequestStateKnob -> GameMonad m ()
@@ -142,7 +143,7 @@ drag = use (glPlayer.playerDragging) >>= \case
 
       _ -> return ()
 
-itemTrigger :: Monad m => ActiveMenuState -> GameMonad m ()
+itemTrigger :: Monad m => Action -> GameMonad m ()
 itemTrigger = modifyConditional . gmEnterMenu
 
 itemMenuOff :: Monad m => GameMonad m ()

@@ -9,6 +9,9 @@ module Submarination.Render
   , showSplashScreen
   , showGameState
   -- * Debugging
+#ifdef GIF
+  , renderLevelGif
+#endif
   , renderLevelHuge )
   where
 
@@ -23,7 +26,7 @@ import qualified Data.Set as S
 import qualified Data.Text as T
 import Development.GitRev
 import Linear.V2
-import Protolude hiding ( to )
+import Protolude hiding ( to, (&) )
 import System.Timeout
 
 import Submarination.Creature
@@ -34,6 +37,10 @@ import Submarination.MonotonicClock
 import Submarination.Level
 import Submarination.Sub
 import Submarination.Terminal
+#ifdef GIF
+import Submarination.Key
+import Submarination.Terminal.Gif
+#endif
 import Submarination.Turn
 import Submarination.Vendor
 
@@ -137,10 +144,12 @@ renderSplashScreen = mutateTerminalStateM $ do
   setText 3 12 Dull White Dull Black "Make your choice:"
   setText 3 14  Vivid Cyan Dull Black "space)"
   setText 10 14 Vivid White Dull Black "Start a new game"
+  setText 3 15  Vivid Cyan Dull Black "g)"
+  setText 10 15 Vivid White Dull Black "Start a new game in god mode"
 
 #ifndef GHCJS_BROWSER
-  setText 3 15  Vivid Cyan Dull Black "q)"
-  setText 10 15 Vivid White Dull Black "Quit"
+  setText 3 16  Vivid Cyan Dull Black "m)"
+  setText 10 16 Vivid White Dull Black "Quit"
 #else
   setText 3 20 Dull White Dull Black "(c) 2017 Mikko Juola"
   setText 3 21 Dull White Dull Black "https://github.com/Noeda/submarination"
@@ -343,13 +352,12 @@ renderItemPile action [single_item] =
 renderItemPile action (first_item:_rest) =
   action $ reverseAppearance $ itemToAppearance first_item
 
-renderCables :: GameMonadRoTerminal s ()
-renderCables = do
+renderCables' :: Int -> (Int, Int) -> V2 Int -> GameMonadRoTerminal s ()
+renderCables' los_distance center (V2 px py) = do
   gs <- gr identity
-  V2 px py <- gr (^.glPlayer.playerPosition)
 
-  lift $ for_ [V2 x y | x <- [px-losDistance..px+losDistance], y <- [py-losDistance..py+losDistance]] $ \levelcoord@(V2 lx ly) -> do
-    let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) mapMiddleOnTerminal
+  lift $ for_ [V2 x y | x <- [px-los_distance..px+los_distance], y <- [py-los_distance..py+los_distance]] $ \levelcoord@(V2 lx ly) -> do
+    let terminalcoord = ((+) (lx - px) *** (+) (ly - py)) center
     case gs^.to (gmTopCableCornering levelcoord) of
       Just dir -> case dir of
         Vertical   -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '│'
@@ -367,13 +375,18 @@ renderCables = do
         Just dir | dir == D3 || dir == D7 -> uncurry setCell' terminalcoord $ Cell Vivid White Dull Black '\\'
         _ -> return ()
 
-renderLevel :: Integer -> Level -> V2 Int -> GameMonadRoTerminal s ()
-renderLevel monotonic_time_ns level (V2 ox oy) = do
+renderCables :: GameMonadRoTerminal s ()
+renderCables = do
+  playerpos <- gr (^.glPlayer.playerPosition)
+  renderCables' losDistance mapMiddleOnTerminal playerpos
+
+renderLevel' :: Integer -> Level -> V2 Int -> Int -> (Int, Int) -> GameMonadRoTerminal s ()
+renderLevel' monotonic_time_ns level (V2 ox oy) los_distance center = do
   oxygen <- gr (^.glPlayer.playerOxygen)
   dep <- gr (^.to gsDepth)
 
-  lift $ for_ [V2 x y | x <- [ox-losDistance..ox+losDistance], y <- [oy-losDistance..oy+losDistance]] $ \levelcoord@(V2 lx ly) -> do
-    let terminalcoord = ((+) (lx - ox) *** (+) (ly - oy)) mapMiddleOnTerminal
+  lift $ for_ [V2 x y | x <- [ox-los_distance..ox+los_distance], y <- [oy-los_distance..oy+los_distance]] $ \levelcoord@(V2 lx ly) -> do
+    let terminalcoord = ((+) (lx - ox) *** (+) (ly - oy)) center
     -- What is the cell we should render?
         level_feature = level^.cellAt levelcoord
 
@@ -391,9 +404,21 @@ renderLevel monotonic_time_ns level (V2 ox oy) = do
  where
   monotonic_time = fromIntegral (monotonic_time_ns `div` 1000000) :: Double
 
+renderLevel :: Integer -> Level -> V2 Int -> GameMonadRoTerminal s ()
+renderLevel monotonic_time_ns level offset =
+  renderLevel' monotonic_time_ns level offset losDistance mapMiddleOnTerminal
+
+renderPlayer' :: (Int, Int) -> V2 Int -> GameMonadRoTerminal s ()
+renderPlayer' (cx, cy) offset = do
+  playerpos <- gr (^.glPlayer.playerPosition)
+  let (V2 lx ly) = playerpos - offset
+      terminalcoord = (lx + cx, ly + cy)
+  lift $ uncurry setCell' terminalcoord (Cell Dull Black Dull White '@')
+
 renderPlayer :: GameMonadRoTerminal s ()
-renderPlayer = lift $
-  uncurry setCell' mapMiddleOnTerminal (Cell Dull Black Dull White '@')
+renderPlayer = do
+  playerpos <- gr (^.glPlayer.playerPosition)
+  renderPlayer' mapMiddleOnTerminal playerpos
 
 blocksText :: Double -> Text
 blocksText len =
@@ -528,7 +553,7 @@ renderHud monotonic_time_ns creature_count = do
       runVerticalBoxRender 1 2 (renderItemMenu item_menu_handler)
     _ -> runVerticalBoxRender 1 hud_y (renderAdditionalHud creature_count)
 
-renderItemMenu :: ItemMenuHandler -> VerticalBoxRender (GameMonadRoTerminal s) ()
+renderItemMenu :: ActionHandler -> VerticalBoxRender (GameMonadRoTerminal s) ()
 renderItemMenu item_handler = do
   unless (T.null $ menuText item_handler) $
     appendWrappedText 1 2 40 Dull White Dull Black (menuText item_handler)
@@ -699,6 +724,7 @@ statusAppearance Slow     = (Dull, Red, Dull, Black)
 statusAppearance Hungry   = (Dull, Red, Dull, Black)
 statusAppearance Starving = (Vivid, Red, Dull, Black)
 statusAppearance Satiated = (Vivid, Green, Dull, Black)
+statusAppearance God      = (Vivid, White, Dull, Black)
 
 renderStatuses :: VerticalBoxRender (GameMonadRoTerminal s) ()
 renderStatuses = do
@@ -745,11 +771,11 @@ renderPossibleTriggerKeys = do
   gs <- gr identity
   renderKeyInstructions (catMaybes (toInstructions gs <$> handlers)) 53
  where
-  handlers = menuItemHandler <$> enumFrom (toEnum 0)
+  handlers = actionHandler <$> enumFrom (toEnum 0)
 
-  toInstructions :: GameState -> ItemMenuHandler -> Maybe ([Text], Text, Usability)
+  toInstructions :: GameState -> ActionHandler -> Maybe ([Text], Text, Usability)
   toInstructions gs handler
-    | prerequisites handler gs = Just (T.singleton . toUpper <$> S.toList (triggerKeys handler), menuName handler, Okay)
+    | prerequisites handler gs = Just (T.singleton . toUpper <$> S.toList (triggerKeys handler), menuName handler gs, Okay)
     | otherwise = Nothing
 
 renderInventorySummary :: Int -> VerticalBoxRender (GameMonadRoTerminal s) ()
@@ -841,4 +867,11 @@ renderLevelHuge lvl = liftIO $ withKeyboardTerminal $
           setCell' x y appearance
 
     liftIO $ threadDelay 100000
+
+#ifdef GIF
+-- This space used to implement crazy demos to bake into gifs and rake that
+-- sweet reddit karma.
+renderLevelGif :: IO ()
+renderLevelGif = return ()
+#endif
 

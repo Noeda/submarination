@@ -12,7 +12,7 @@ import Data.Data
 import Protolude
 
 newtype Index = Index Int
-  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
+  deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary, Num )
 
 toInt :: Index -> Int
 toInt (Index x) = x

@@ -6,6 +6,7 @@ module Submarination.Terminal.Common
   , runTerminalStateT
   , Cell(..)
   , emptyTerminalState
+  , mutateTerminalStateMOffscreen
   , mutateTerminalStateMRaw
   , mutateTerminalState
   , generateTerminalState
@@ -21,6 +22,8 @@ module Submarination.Terminal.Common
   , foreground
   , background
   , char
+  , terminalCellAt
+  , terminalSize
   , module System.Console.ANSI )
   where
 
@@ -107,6 +110,13 @@ getCell' x y = MutateTerminal $ do
     then lift $ AM.readArray (cellsMut mut) (x, y)
     else return $ Cell Dull White Dull Black ' '
 {-# INLINE getCell' #-}
+
+mutateTerminalStateMOffscreen :: forall m a. MonadTerminalState m
+                              => (Int, Int)
+                              -> (forall s. MutateTerminal s a)
+                              -> m a
+mutateTerminalStateMOffscreen size action =
+  mutateTerminalStateMRaw action (pure size) putTerminal
 
 mutateTerminalSize :: MutateTerminal s (Int, Int)
 mutateTerminalSize = MutateTerminal $ do
@@ -210,4 +220,19 @@ char = lens get_it set_it
 -- TODO: use wcwidth()
 textWidth :: Text -> Int
 textWidth = T.length
+
+terminalCellAt :: TerminalState -> Int -> Int -> Cell
+terminalCellAt ts x y =
+  if x < 0 || y < 0 || x > w || y > h
+    then Cell Dull White Dull Black ' '
+    else cells ts A.! (x, y)
+ where
+  ((_, _), (w, h)) = A.bounds (cells ts)
+{-# INLINEABLE terminalCellAt #-}
+
+terminalSize :: TerminalState -> (Int, Int)
+terminalSize ts =
+  let ((_, _), (w, h)) = A.bounds (cells ts)
+   in (w+1, h+1)
+{-# INLINEABLE terminalSize #-}
 

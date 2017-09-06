@@ -12,6 +12,8 @@ module Submarination.GameState
   -- * Game state
   , initialGameState
   , GameState()
+  , glLevelAt
+  , glGodMode
   , gsAdvanceTurn
   , gsAdvanceInputTurn
   , gsRetractInputTurn
@@ -41,9 +43,12 @@ module Submarination.GameState
   , inventoryLimit
   -- ** Cables objects
   , glCableAt
+  , gsIsRootCable
+  , gmRetractTether
   , gmTopCableOrientation
   , gmTopCableCornering
   , Cable(..)
+  , CableNext(..)
   -- * Predefined levels
   , surfaceLevel
   -- * Statuses
@@ -67,6 +72,7 @@ module Submarination.GameState
   , playerOxygen
   , playerPosition
   , playerShells
+  , playerTethered
   , Player()
   -- * Submarine propertries
   , glSub
@@ -92,7 +98,7 @@ module Submarination.GameState
   , gmEnterMenu
   , gmInsertMenuDigit
   , gmSelectToggleCursorItem
-  , ActiveMenuState(..)
+  , Action(..)
   , SelectMode(..)
   , gmMenuCursor
   , gmMenuSelections
@@ -100,8 +106,8 @@ module Submarination.GameState
   , gmDecreaseMenuCursor
   -- ** Menu utilities
   , menuKeyToMenuStateTrigger
-  , menuItemHandler
-  , ItemMenuHandler(..)
+  , actionHandler
+  , ActionHandler(..)
   , singleSelection
   -- ** Vendor stuff
   , gsCurrentVendorItemSelection
@@ -121,7 +127,7 @@ import Data.Hashable
 import qualified Data.IntMap.Strict as IM
 import qualified Data.Map.Strict as M
 import Data.Maybe
-import Data.List ( (!!), delete, last )
+import Data.List ( (!!), delete, last, tail )
 import qualified Data.IntSet as IS
 import qualified Data.Set as S
 import Linear.V2
@@ -214,10 +220,11 @@ gllAtPlayer inner_lens = lens get_it set_it
 
 gsCurrentStatuses :: GameState -> S.Set Status
 gsCurrentStatuses gs = mconcat
-  [check gsIsSlow     Slow
-  ,check gsIsHungry   Hungry
-  ,check gsIsStarving Starving
-  ,check gsIsSatiated Satiated]
+  [check gsIsSlow      Slow
+  ,check gsIsHungry    Hungry
+  ,check gsIsStarving  Starving
+  ,check gsIsSatiated  Satiated
+  ,check (^.glGodMode) God]
  where
   check fun stat = if fun gs then S.singleton stat else S.empty
 
@@ -237,6 +244,7 @@ statusName Slow = "Slow"
 statusName Hungry = "Hungry"
 statusName Starving = "Starving"
 statusName Satiated = "Satiated"
+statusName God = "God"
 
 gsIsSlow :: GameState -> Bool
 gsIsSlow gs =
@@ -336,8 +344,8 @@ gsAdvanceTurn gs =
     ((,) <$> use (to gsIsOnSurface) <*> use (to gsPlayerIsInsideSub)) >>= \case
       (False, False) -> player.playerOxygen -= 1
       _ -> do
-        player.playerOxygen %= max (-1)
-        player.playerOxygen += 1
+        player.playerOxygen %= max (-5)
+        player.playerOxygen += 5
 
     -- Clamp oxygen
     gs <- get
@@ -354,7 +362,7 @@ gsAdvanceTurn gs =
 
     oxygen <- use $ player.playerOxygen
     when (oxygen <= 0) $ do
-      player.playerHealth -= 1
+      player.playerHealth -= 3
       modify $ gsDeathCheck "Asphyxia"
 
     walkCreatures
@@ -503,7 +511,13 @@ gmMoveToDirection direction gs = flip evalState gs $ runMaybeT $ do
 
       -- Pull cable, if we are cabled
       use (player.playerTethered) >>= \case
-        Just cable_index -> pullTether old_playerpos new_playerpos cable_index
+        Just cable_index -> do
+          pullTether old_playerpos new_playerpos cable_index
+          gs <- use identity
+          case cableToList new_playerpos cable_index gs of
+            -- Tether maximum length is 100m
+            Just (length -> len) -> guard (len <= 100)
+            _ -> guard False
         _ -> return ()
 
       identity %= gsAdvanceTurn
@@ -515,7 +529,8 @@ gmMoveToDirection direction gs = flip evalState gs $ runMaybeT $ do
       Just cable_positions -> do
         case pullTension (\pos -> not $ isWalkable (gs^.glCellAt pos))
                          new_playerpos
-                         cable_positions of
+                         cable_positions
+                         False of
           Nothing -> return ()
           Just pulled_cable_positions ->
             modify $ putNewCableToList cable_positions pulled_cable_positions cable_index
@@ -543,17 +558,6 @@ cableToList :: V2 Int -> Index -> GameState -> Maybe [V2 Int]
 cableToList pos index gs = do
   top_cable <- gsTopCableAt index pos gs
   go pos (top_cable^.cablePosition)
- where
-  go pos cpos = do
-    cable <- gs^.glCableAt index pos.at cpos
-    (pos:) <$> case cable^.cableNext of
-      End -> pure []
-      CableAt nextpos -> go nextpos (cpos-1)
-
-cableToList' :: V2 Int -> Index -> GameState -> Maybe [V2 Int]
-cableToList' pos index gs = do
-  top_cable <- gsTopCableAt index pos gs
-  traceShow top_cable $ go pos (top_cable^.cablePosition)
  where
   go pos cpos = do
     cable <- gs^.glCableAt index pos.at cpos
@@ -701,7 +705,7 @@ gmCurrentVendorCreature gs = runMaybeExcept $ do
       Just creature | isVendor (creatureType creature) -> throwE creature
       _ -> return ()
 
-gmActiveMenuHandler :: GameState -> Maybe ItemMenuHandler
+gmActiveMenuHandler :: GameState -> Maybe ActionHandler
 gmActiveMenuHandler gs =
   ch Drop <|>
   ch Eat <|>
@@ -711,13 +715,15 @@ gmActiveMenuHandler gs =
   ch ContainerTakeOut <|>
   ch StartDive <|>
   ch MicrowaveMenu <|>
-  ch Anchor
+  ch Anchor <|>
+  ch UnAnchor <|>
+  ch RetractTether
  where
   ch ms = case gs^.activeMenuState.at ms of
     Nothing -> Nothing
-    Just _index -> Just $ menuItemHandler ms
+    Just _index -> Just $ actionHandler ms
 
-gmActiveMenu :: GameState -> Maybe ActiveMenuState
+gmActiveMenu :: GameState -> Maybe Action
 gmActiveMenu gs =
   if | Inventory           `M.member` menus -> Just Inventory
      | Drop                `M.member` menus -> Just Drop
@@ -728,6 +734,8 @@ gmActiveMenu gs =
      | ContainerTakeOut    `M.member` menus -> Just ContainerTakeOut
      | StartDive           `M.member` menus -> Just StartDive
      | Anchor              `M.member` menus -> Just Anchor
+     | UnAnchor            `M.member` menus -> Just UnAnchor
+     | RetractTether       `M.member` menus -> Just RetractTether
 
      | otherwise -> Nothing
  where
@@ -741,7 +749,7 @@ gmCloseMenu gs = do
 gmInsertMenuDigit :: Int -> GameState -> Maybe GameState
 gmInsertMenuDigit digit gs = do
   ms <- gmActiveMenu gs
-  let handler = menuItemHandler ms
+  let handler = actionHandler ms
   guard (selectMode handler == MultiSelect)
 
   return $ gs & activeMenuCounter %~ Just . \case
@@ -753,9 +761,9 @@ gmInsertMenuDigit digit gs = do
             then maxBound
             else new_value
 
-gmEnterMenu :: ActiveMenuState -> GameState -> Maybe GameState
+gmEnterMenu :: Action -> GameState -> Maybe GameState
 gmEnterMenu ms gs = do
-  let handler = menuItemHandler ms
+  let handler = actionHandler ms
   guard (prerequisites handler gs)
 
   let initial_selection = case selectMode handler of
@@ -783,18 +791,18 @@ gsCycleGame = execState $ do
 gsInActiveMenu :: GameState -> Bool
 gsInActiveMenu = isJust . gmActiveMenu
 
-gsIsMenuActive :: ActiveMenuState -> GameState -> Bool
+gsIsMenuActive :: Action -> GameState -> Bool
 gsIsMenuActive ms gs = gs^.activeMenuState.to (ms `M.member`)
 
-menuKeyToMenuStateTrigger :: GameState -> Char -> Maybe ActiveMenuState
+menuKeyToMenuStateTrigger :: GameState -> Char -> Maybe Action
 menuKeyToMenuStateTrigger gs ch = go menu_states
  where
   menu_states = enumFrom (toEnum 0)
 
   go [] = Nothing
   go (candidate:rest) =
-    if ch `S.member` triggerKeys (menuItemHandler candidate) &&
-       prerequisites (menuItemHandler candidate) gs
+    if ch `S.member` triggerKeys (actionHandler candidate) &&
+       prerequisites (actionHandler candidate) gs
       then Just candidate
       else go rest
 
@@ -845,7 +853,7 @@ singleSelection = prism' (`M.singleton` 1) $ \sset ->
            _ -> Nothing
     else Nothing
 
-currentlySelectedSingleMenuItemLens :: ActiveMenuState -> Lens' GameState [Item] -> Getter GameState (Maybe Item)
+currentlySelectedSingleMenuItemLens :: Action -> Lens' GameState [Item] -> Getter GameState (Maybe Item)
 currentlySelectedSingleMenuItemLens menu_state item_get = to $ \gs -> do
   selection <- gs^?activeMenuState.at menu_state._Just._2
   let items = gs^.item_get.to groupItems.to M.assocs
@@ -967,11 +975,11 @@ gmCurrentSelectMode :: GameState -> Maybe SelectMode
 gmCurrentSelectMode gs =
   selectMode <$> gmActiveMenuHandler gs
 
-defaultItemHandler :: ActiveMenuState -> Lens' GameState [Item] -> ItemMenuHandler
-defaultItemHandler key item_lens = ItemMenuHandler
+defaultItemHandler :: Action -> Lens' GameState [Item] -> ActionHandler
+defaultItemHandler key item_lens = ActionHandler
   { triggerKeys           = S.empty
   , offKeys               = S.empty
-  , menuName              = "<UNKNOWN>"
+  , menuName              = const "<UNKNOWN>"
   , menuText              = ""
   , menuStateKey          = key
   , selectMode            = NotSelectable
@@ -983,19 +991,25 @@ defaultItemHandler key item_lens = ItemMenuHandler
   , toActiveMenuInventory = const []
   , itemLens              = item_lens }
 
+singleKeyAction :: Action -> (GameState -> Maybe GameState) -> ActionHandler
+singleKeyAction action fun = (defaultItemHandler action activeMenuInventory)
+  { prerequisites    = isJust . fun
+  , selectMode       = NotSelectable
+  , quickEnterAction = fun }
+
 anyItemMenuFilter :: GameState -> Item -> Bool
 anyItemMenuFilter _ _ = True
 
-menuTransition :: GameState -> Char -> Text -> ActiveMenuState -> [(Char, Text)]
+menuTransition :: GameState -> Char -> Text -> Action -> [(Char, Text)]
 menuTransition gs ch text ams =
-  if prerequisites (menuItemHandler ams) gs
+  if prerequisites (actionHandler ams) gs
     then [(ch, text)]
     else []
 
-menuItemHandler :: ActiveMenuState -> ItemMenuHandler
-menuItemHandler Inventory = (defaultItemHandler Inventory (player.playerInventory))
+actionHandler :: Action -> ActionHandler
+actionHandler Inventory = (defaultItemHandler Inventory (player.playerInventory))
   { triggerKeys = S.fromList "i"
-  , menuName = "Inventory"
+  , menuName = const "Inventory"
   , offKeys = S.fromList "qi "
   , selectMode = NotSelectable
   , menuKeys = M.empty
@@ -1007,9 +1021,9 @@ menuItemHandler Inventory = (defaultItemHandler Inventory (player.playerInventor
                   menuTransition gs 'e' "Eat" Eat
   }
 
-menuItemHandler Eat = (defaultItemHandler Eat (player.playerInventory))
+actionHandler Eat = (defaultItemHandler Eat (player.playerInventory))
   { triggerKeys = S.fromList "e"
-  , menuName = "Eat"
+  , menuName = const "Eat"
   , offKeys = S.fromList "q"
   , selectMode = SingleSelect
   , menuKeys = M.fromList [('e', ("Eat", (^.to geEatInventoryItemByMenu)))]
@@ -1017,9 +1031,9 @@ menuItemHandler Eat = (defaultItemHandler Eat (player.playerInventory))
                            not (null $ filter isEdible $ gs^.player.playerInventory)
   , menuFilter = \_ -> isEdible }
 
-menuItemHandler Drop = (defaultItemHandler Drop (player.playerInventory))
+actionHandler Drop = (defaultItemHandler Drop (player.playerInventory))
   { triggerKeys = S.fromList "d"
-  , menuName = "Drop items"
+  , menuName = const "Drop items"
   , offKeys = S.fromList "q"
   , selectMode = MultiSelect
   , menuKeys = M.fromList [('d', ("Drop", (^.to geDropInventoryItemByMenu)))]
@@ -1027,9 +1041,9 @@ menuItemHandler Drop = (defaultItemHandler Drop (player.playerInventory))
                            not (null $ gs^.player.playerInventory)
   , menuFilter = anyItemMenuFilter }
 
-menuItemHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
+actionHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
   { triggerKeys = S.fromList ","
-  , menuName = "Pick up"
+  , menuName = const "Pick up"
   , offKeys = S.fromList "q"
   , selectMode = MultiSelect
   , menuKeys = M.fromList [(',', ("Pick up", \gs -> gs^.to gePickUpItemByMenu))]
@@ -1042,9 +1056,9 @@ menuItemHandler Pickup = (defaultItemHandler Pickup itemsAtPlayer)
         to (gsAddMessage $ "Picked up " <> itemName (gs^.turn) single_item Singular <> ".")
       _ -> Nothing }
 
-menuItemHandler ContainerTakeOut = (defaultItemHandler ContainerTakeOut activeMenuInventory)
+actionHandler ContainerTakeOut = (defaultItemHandler ContainerTakeOut activeMenuInventory)
   { triggerKeys = S.fromList "t"
-  , menuName    = "Take out items"
+  , menuName    = const "Take out items"
   , offKeys     = S.fromList "q"
   , selectMode  = MultiSelect
   , menuKeys = M.fromList [('t', ("Take out", \gs -> gs^.to geTakeOutItemsByMenu))]
@@ -1059,9 +1073,9 @@ menuItemHandler ContainerTakeOut = (defaultItemHandler ContainerTakeOut activeMe
     guard (not $ null cont)
     pure cont
 
-menuItemHandler ContainerPutIn = (defaultItemHandler ContainerPutIn (player.playerInventory))
+actionHandler ContainerPutIn = (defaultItemHandler ContainerPutIn (player.playerInventory))
   { triggerKeys = S.fromList "p"
-  , menuName    = "Put in items"
+  , menuName    = const "Put in items"
   , offKeys     = S.fromList "q"
   , selectMode  = MultiSelect
   , menuKeys = M.fromList [('p', ("Put in", \gs -> gs^.to gePutInItemsByMenu))]
@@ -1069,22 +1083,23 @@ menuItemHandler ContainerPutIn = (defaultItemHandler ContainerPutIn (player.play
                            isJust (gs^?gllAtPlayer glBulkyItemAt._Just.itemContents)
   , menuFilter = \_ -> not . isItemBulky }
 
-menuItemHandler StartDive = (defaultItemHandler StartDive activeMenuInventory)
+actionHandler StartDive = (defaultItemHandler StartDive activeMenuInventory)
   { triggerKeys   = S.fromList "d"
-  , menuName      = "Dive"
+  , menuName      = const "Dive"
   , offKeys       = S.fromList "q "
   , selectMode    = NotSelectable
   , menuKeys      = M.fromList [('d', ("Dive", \gs -> fmap gsAdvanceTurn $ gs^.to geStartDiving))]
   , prerequisites = \gs -> isNothing (gmActiveMenu gs) &&
                            not (gs^.sub.subDiving) &&
+                           isNothing (gs^.player.playerTethered) &&
                            (isBridge <$> getAtomTopologyAt (gs^.player.playerPosition - gs^.sub.subPosition) (gs^.sub.subTopology)) == Just True
   , menuFilter    = \_ _ -> False
   , menuText      = "There is no turning back after you dive. Make sure you've spent your money and stocked up properly."
   }
 
-menuItemHandler MicrowaveMenu = (defaultItemHandler MicrowaveMenu activeMenuInventory)
+actionHandler MicrowaveMenu = (defaultItemHandler MicrowaveMenu activeMenuInventory)
   { triggerKeys   = S.fromList "f"
-  , menuName      = "Microwave"
+  , menuName      = const "Microwave"
   , offKeys       = S.fromList "q "
   , selectMode    = NotSelectable
   , menuKeys      = M.fromList [('f', ("Microwave", \gs -> fmap gsAdvanceTurn $ gs^.to geMicrowave))]
@@ -1096,21 +1111,58 @@ menuItemHandler MicrowaveMenu = (defaultItemHandler MicrowaveMenu activeMenuInve
   , toActiveMenuInventory = \gs -> fromMaybe [] $ gs^?gllAtPlayer glBulkyItemAt._Just.itemContents
   }
 
-menuItemHandler Anchor = (defaultItemHandler Anchor activeMenuInventory)
-  { triggerKeys   = S.fromList "w"
-  , menuName      = "Anchor"
-  , selectMode    = NotSelectable
-  , menuKeys      = M.empty
-  , prerequisites = \gs -> gmActiveMenu gs == Nothing &&
-                           gs^?player.playerDragging._Just.itemType == Just (WinchAndCable False) &&
-                           gs^.gllAtPlayer glBulkyItemAt == Nothing
-  , quickEnterAction = Just . execState (do
+actionHandler Anchor = (singleKeyAction Anchor $ \gs -> do
+    guard (gmActiveMenu gs == Nothing)
+    guard (gs^?player.playerDragging._Just.itemType == Just (WinchAndCable False))
+    guard (gs^.gllAtPlayer glBulkyItemAt == Nothing)
+    guard (gs^.player.playerTethered == Nothing)
+    guard (gs^.sub.subDiving == False)
+
+    Just $ flip execState gs $ do
       old_item <- use (player.playerDragging)
       gllAtPlayer glBulkyItemAt .= (old_item & _Just.itemType .~ WinchAndCable True)
       player.playerDragging .= Nothing
       idx <- nextGSIndex
       player.playerTethered .= Just idx
       gllAtPlayer (glCableAt idx) .= (IM.singleton 0 $ Cable 0 idx End End))
+  {
+    menuName      = const "Anchor"
+  , triggerKeys   = S.fromList "w"
+  }
+
+actionHandler UnAnchor = (singleKeyAction UnAnchor $ \gs -> do
+    guard (gmActiveMenu gs == Nothing)
+    guard (isNothing $ gs^?player.playerDragging._Just.itemType)
+    guard (gs^?gllAtPlayer glBulkyItemAt._Just.itemType == Just (WinchAndCable True))
+    tether <- gs^.player.playerTethered
+    guard (gsIsRootCable tether (gs^.player.playerPosition) gs)
+
+    Just $ flip execState gs $ do
+      gllAtPlayer glBulkyItemAt._Just.itemType .= WinchAndCable False
+      player.playerTethered .= Nothing
+      modify $ gsClearCable tether)
+  { triggerKeys = S.fromList "w"
+  , menuName = const "Un-anchor"
+  }
+
+actionHandler RetractTether =
+  (singleKeyAction RetractTether $ \gs -> do
+    guard (gmActiveMenu gs == Nothing)
+    tether <- gs^.player.playerTethered
+
+    let untether gs = do guard (not $ gsIsRootCable tether (gs^.player.playerPosition) gs)
+                         gmRetractTether gs
+
+    gs1 <- untether gs
+    gs2 <- untether gs1 <|> pure gs1
+    return $ gsAdvanceTurn gs2)
+  { triggerKeys = S.fromList "w"
+  , menuName = \gs ->
+      let lst = fromMaybe "" $
+                (gs^.player.playerTethered >>= \cable_index ->
+                 length <$> cableToList (gs^.player.playerPosition) cable_index gs) >>= \len ->
+                 pure (" (" <> show len <> "m)")
+      in "Retract cable" <> lst
   }
 
 geMicrowave :: GameState -> Failing GameState
@@ -1129,7 +1181,7 @@ geMicrowave gs = do
 gsIsVendoring :: GameState -> Bool
 gsIsVendoring gs = isJust $ gs^.vendorMenu
 
-getSelection :: ItemMenuHandler -> GameState -> (Int, Int)
+getSelection :: ActionHandler -> GameState -> (Int, Int)
 getSelection handler gs =
   let items = filter (menuFilter handler gs) (gs^.itemLens handler)
       menu_selection = fromMaybe 0 $ gs^?activeMenuState.at (menuStateKey handler)._Just._2
@@ -1280,4 +1332,50 @@ gmTopCableCornering pos gs =
         Just (Cable _ _ (CableAt next) (CableAt prev), _) -> deltaToCornering prev pos next
         _ -> Nothing
     _ -> Nothing
+
+gmRetractTether :: GameState -> Maybe GameState
+gmRetractTether gs = do
+  cable_index <- gs^.player.playerTethered
+  let playerpos = gs^.player.playerPosition
+  cablelist <- cableToList playerpos cable_index gs
+  let cl = last cablelist
+  new_positions <- pullTension (\pos -> not $ isWalkable (gs^.glCellAt pos))
+                               cl
+                               (tail $ reverse cablelist)
+                               False
+
+  let Just new_playerpos = head $ reverse new_positions
+
+  guard (isWalkable $ gs^.glCellAt new_playerpos)
+  guard (isNothing $ gs^.glCreatureAt new_playerpos)
+  guard (isNothing (gs^.player.playerDragging) ||
+         isNothing (gs^.glBulkyItemAt new_playerpos))
+
+  return $ (putNewCableToList cablelist (reverse new_positions) cable_index gs) &
+           (player.playerPosition .~ new_playerpos)
+
+glLevelAt :: Int -> Lens' GameState (Maybe Level)
+glLevelAt lvl_idx = levels.at lvl_idx
+
+glGodMode :: Lens' GameState Bool
+glGodMode = godMode
+
+-- | Returns true if for given cable index and position, the winch for that
+-- cable is at that position.
+gsIsRootCable :: Index -> V2 Int -> GameState -> Bool
+gsIsRootCable index pos gs = case gs^.glCableAt index pos of
+  immap | IM.null immap -> False
+  _ -> case cableToList pos index gs of
+    Just [] -> False
+    Nothing -> False
+    Just lst | winch_pos <- last lst, winch_pos == pos -> True
+    _ -> False
+
+-- | Removes all traces of some cable from the cable.
+gsClearCable :: Index -> GameState -> GameState
+gsClearCable index gs = flip execState gs $ do
+  new_cables <- for (gs^.cables) $ traverse $ \immap ->
+    let immap' = IM.filterWithKey (\cableindex _ -> fromIntegral cableindex /= index) immap
+     in return immap'
+  cables .= new_cables
 

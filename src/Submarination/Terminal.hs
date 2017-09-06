@@ -3,6 +3,8 @@
 module Submarination.Terminal
   ( withKeyboardTerminal
   , TerminalState()
+  , terminalSize
+  , terminalCellAt
   , HasTerminalState(..)
   , TerminalStateT()
   , MonadTerminalState(..)
@@ -12,6 +14,7 @@ module Submarination.Terminal
   , emptyTerminalState
   , mutateTerminalState
   , mutateTerminalStateM
+  , mutateTerminalStateMOffscreen
   , generateTerminalState
   , paintTerminal
   , getTerminalSize

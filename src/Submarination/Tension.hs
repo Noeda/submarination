@@ -13,10 +13,12 @@ isConnected :: V2 Int -> V2 Int -> Bool
 isConnected (V2 x1 y1) (V2 x2 y2) =
   abs (x1-x2) <= 1 && abs (y1-y2) <= 1
 
-moveTowardsUntil :: (V2 Int -> Bool) -> V2 Int -> (V2 Int -> V2 Int -> Bool) -> V2 Int -> V2 Int -> Maybe (V2 Int)
-moveTowardsUntil _ _ test subject target | test subject target = Just subject
-moveTowardsUntil obstacles first_candidate test subject@(V2 x1 y1) target@(V2 x2 y2) =
-  diagonal
+moveTowardsUntil :: (V2 Int -> Bool) -> V2 Int -> (V2 Int -> V2 Int -> Bool) -> V2 Int -> V2 Int -> Bool -> Maybe (V2 Int)
+moveTowardsUntil _ _ test subject target _ | test subject target = Just subject
+moveTowardsUntil obstacles first_candidate test subject@(V2 x1 y1) target@(V2 x2 y2) straight_pull =
+  if straight_pull
+    then same_dir
+    else diagonal
  where
   diagonal =
     -- Try diagonal moving
@@ -29,7 +31,7 @@ moveTowardsUntil obstacles first_candidate test subject@(V2 x1 y1) target@(V2 x2
                 | otherwise -> y1
 
      in if not (obstacles (V2 x3 y3))
-          then moveTowardsUntil obstacles first_candidate test (V2 x3 y3) target
+          then moveTowardsUntil obstacles first_candidate test (V2 x3 y3) target straight_pull
           else xMove
 
   xMove =
@@ -38,7 +40,7 @@ moveTowardsUntil obstacles first_candidate test subject@(V2 x1 y1) target@(V2 x2
                 | otherwise -> x1
 
      in if x3 /= x1 && not (obstacles (V2 x3 y1))
-          then moveTowardsUntil obstacles first_candidate test (V2 x3 y1) target
+          then moveTowardsUntil obstacles first_candidate test (V2 x3 y1) target straight_pull
           else yMove
 
   yMove =
@@ -47,23 +49,27 @@ moveTowardsUntil obstacles first_candidate test subject@(V2 x1 y1) target@(V2 x2
                 | otherwise -> y1
 
      in if y3 /= y1 && not (obstacles (V2 x1 y3))
-          then moveTowardsUntil obstacles first_candidate test (V2 x1 y3) target
-          else same_dir
+          then moveTowardsUntil obstacles first_candidate test (V2 x1 y3) target straight_pull
+          else (if straight_pull
+                  then Nothing
+                  else same_dir)
 
   same_dir =
     if test first_candidate target && test subject first_candidate
       then Just first_candidate
-      else Nothing
+      else (if straight_pull
+              then diagonal
+              else Nothing)
 
-pullTension :: (V2 Int -> Bool) -> V2 Int -> [V2 Int] -> Maybe [V2 Int]
-pullTension _ _ [] = Just []
-pullTension obstacles target (f:rest) =
+pullTension :: (V2 Int -> Bool) -> V2 Int -> [V2 Int] -> Bool -> Maybe [V2 Int]
+pullTension _ _ [] _ = Just []
+pullTension obstacles target (f:rest) pull_straight =
   (target:) <$> connect f target rest
  where
   connect _first _target [] = Just []
   connect _first target (x:rest) | isConnected target x = Just (x:rest)
   connect first target (x:rest) =
-    moveTowardsUntil obstacles first isConnected x target >>= \x' ->
+    moveTowardsUntil obstacles first isConnected x target pull_straight >>= \x' ->
       (x':) <$> connect x x' rest
 
 tests :: [Test]
@@ -78,25 +84,25 @@ testTensionPullingListLength :: (Int, Int) -> [(Int, Int)] -> Bool
 testTensionPullingListLength (fx, fy) lst' =
   let lst = fmap (\(x, y) -> V2 x y) lst'
       first_item = V2 fx fy
-   in length (fromJust $ pullTension (const False) first_item lst) == length lst
+   in length (fromJust $ pullTension (const False) first_item lst False) == length lst
 
 testTensionPullingSmokeTest1 :: Bool
 testTensionPullingSmokeTest1 =
-  pullTension (const False) (V2 0 0) [V2 1 0] == Just [V2 0 0]
+  pullTension (const False) (V2 0 0) [V2 1 0] False == Just [V2 0 0]
 
 testTensionPullingSmokeTest2 :: Bool
 testTensionPullingSmokeTest2 =
-  pullTension (const False) (V2 0 0) [V2 1 0, V2 2 0] == Just [V2 0 0, V2 1 0]
+  pullTension (const False) (V2 0 0) [V2 1 0, V2 2 0] False == Just [V2 0 0, V2 1 0]
 
 testTensionPullingSmokeTest3 :: Bool
 testTensionPullingSmokeTest3 =
-  pullTension (const False) (V2 0 0) [V2 1 0, V2 1 1] == Just [V2 0 0, V2 1 1]
+  pullTension (const False) (V2 0 0) [V2 1 0, V2 1 1] False == Just [V2 0 0, V2 1 1]
 
 testTensionPullingSmokeTest4 :: Bool
 testTensionPullingSmokeTest4 =
-  pullTension (const False) (V2 0 0) [V2 1 0, V2 0 0] == Just [V2 0 0, V2 0 0]
+  pullTension (const False) (V2 0 0) [V2 1 0, V2 0 0] False == Just [V2 0 0, V2 0 0]
 
 testTensionPullingSmokeTest5 :: Bool
 testTensionPullingSmokeTest5 =
-  pullTension (const False) (V2 0 0) [V2 1 0, V2 1 1, V2 2 2] == Just [V2 0 0, V2 1 1, V2 2 2]
+  pullTension (const False) (V2 0 0) [V2 1 0, V2 1 1, V2 2 2] False == Just [V2 0 0, V2 1 1, V2 2 2]
 
