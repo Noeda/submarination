@@ -48,6 +48,8 @@ main = shakeArgsWith shakeOptions{shakeFiles="_build", shakeThreads=2} flags $ \
   phony "deploy" $ do
     bucket <- fromMaybe (error "SUBMARINATION_BUCKET must be defined (env)") <$> getEnv "SUBMARINATION_BUCKET"
     prefix <- fromMaybe (error "SUBMARINATION_PREFIX must be defined (env)") <$> getEnv "SUBMARINATION_PREFIX"
+    cloudfront_did <- fromMaybe (error "SUBMARINATION_DISTRIBUTION_ID must be defined (env)") <$> getEnv "SUBMARINATION_DISTRIBUTION_ID"
+
     need ["web/index.html", "web/DejaVuSansMono.ttf", "web/style.css", "_build/submarination.min.js.gz"]
 
     let copy file tgt = cmd "aws" "s3" "cp" file ("s3://" <> bucket </> prefix </> tgt) :: Action ()
@@ -56,7 +58,12 @@ main = shakeArgsWith shakeOptions{shakeFiles="_build", shakeThreads=2} flags $ \
     copy "web/DejaVuSansMono.ttf" "DejaVuSansMono.ttf"
     copy "web/style.css" "style.css"
 
-    cmd "s3cmd" "put" "--add-header" "Content-Type:application/json" "--add-header" "Content-Encoding:gzip" "_build/submarination.min.js.gz" ("s3://" <> bucket </> prefix </> "bundle.js")
+    cmd "s3cmd" "put" "--add-header" "Content-Type:application/json" "--add-header" "Content-Encoding:gzip" "_build/submarination.min.js.gz" ("s3://" <> bucket </> prefix </> "bundle.js") :: Action ()
+
+    -- CloudFront invalidation.
+    -- They are cheap enough that I have no problem doing invalidation every
+    -- time.
+    cmd "aws" "cloudfront" "create-invalidation" "--distribution-id" cloudfront_did "--paths" "/*"
 
   "_build/*.gz" %> \out -> do
     need [dropExtension out]
