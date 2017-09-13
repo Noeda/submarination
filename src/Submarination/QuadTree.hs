@@ -19,6 +19,7 @@ module Submarination.QuadTree
   , findClosestNeighbour
   , fold
   , size
+  , depth
 
   , tests
   , benchmarks )
@@ -73,6 +74,18 @@ showInternal Empty = "Empty"
 showInternal (Leaf leafpos leafvalue) = "Leaf (" <> show leafpos <> ") (" <> show leafvalue <> ")"
 showInternal (Node origin side_length q1 q2 q3 q4) =
   "Node (" <> show origin <> ") " <> show side_length <> " (" <> showInternal q1 <> ") (" <> showInternal q2 <> ") (" <> showInternal q3 <> ") (" <> showInternal q4 <> ")"
+
+-- | How deeply is the quadtree subdivided at maximum depth?
+--
+-- Minimum is 1.
+--
+-- Mostly useful for debugging.
+depth :: IntQuadTree v -> Int
+depth Empty = 0
+depth Leaf{} = 0
+depth (Node _ _ q1 q2 q3 q4) =
+  1 + max (depth q1) (max (depth q2) (max (depth q3) (depth q4)))
+{-# INLINEABLE depth #-}
 
 instance Eq v => Eq (IntQuadTree v) where
   -- can't use auto-derived eq because quadtrees may have different spine and
@@ -337,9 +350,27 @@ selectQuadrant pos@(V2 px py) node@(Node origin@(V2 ox oy) side_length node1 nod
 selectQuadrant _ node _ = node
 {-# INLINE selectQuadrant #-}
 
-isEmptyableNode :: IntQuadTree v -> Bool
-isEmptyableNode (Node _ _ Empty Empty Empty Empty) = True
-isEmptyableNode _ = False
+collapse :: IntQuadTree v -> IntQuadTree v
+collapse node@(Node _ _ q1 q2 q3 q4) =
+  let num_empties = countEmpty q1 +
+                    countEmpty q2 +
+                    countEmpty q3 +
+                    countEmpty q4
+
+   in if | num_empties == 3
+           -> (if | isNonEmpty q1 -> q1
+                  | isNonEmpty q2 -> q2
+                  | isNonEmpty q3 -> q3
+                  | isNonEmpty q4 -> q4
+                  | otherwise -> node)
+         | num_empties == 4
+           -> Empty
+         | otherwise
+           -> node
+ where
+  isNonEmpty Empty = False
+  isNonEmpty _ = True
+collapse x = x
 
 leafify :: IntQuadTree v -> IntQuadTree v
 leafify node@(Node _ _ q1 q2 q3 q4) =
@@ -357,12 +388,14 @@ leafify node@(Node _ _ q1 q2 q3 q4) =
                  | otherwise -> node)
         else node
  where
-  countEmpty Empty = 1 :: Int
-  countEmpty _ = 0
-
   isLeaf Leaf{} = True
   isLeaf _ = False
 leafify node = node
+
+countEmpty :: IntQuadTree v -> Int
+countEmpty Empty = 1 :: Int
+countEmpty _ = 0
+{-# INLINE countEmpty #-}
 
 delete :: V2 Int -> IntQuadTree v -> IntQuadTree v
 delete _pos Empty = Empty
@@ -371,9 +404,7 @@ delete pos leaf@(Leaf leafpos _leafvalue)
   | otherwise      = leaf
 delete pos node =
   let new_node = selectQuadrant pos node $ delete pos
-   in if isEmptyableNode new_node
-        then Empty
-        else new_node
+   in collapse new_node
 {-# INLINEABLE delete #-}
 
 -- | Returns the keys in a quad tree. They are not guaranteed to be in any
@@ -398,7 +429,8 @@ tests =
         ,testProperty "show + read is identity" testShowRead
         ,testProperty "fromList . toList is identity" testFromListToList
         ,testProperty "findClosestNeighbour is equivalent to naive version" testClosestNeighbourAgainstNaive
-        ,testProperty "monoid makes sense" testMonoid]]
+        ,testProperty "monoid makes sense" testMonoid
+        ,testProperty "deleting most of the map shrinks the quadtree properly" testScarcity]]
 
 fromList :: [(V2 Int, v)] -> IntQuadTree v
 fromList = foldr folder empty
@@ -441,6 +473,20 @@ insertBazillion lst =
       folder (idx, (x, y)) map = insert (V2 x y) (idx :: Int) map
 
    in map
+
+testScarcity :: [(Int, Int)] -> Int -> Int -> Property
+testScarcity lst (abs -> x) (abs -> y) =
+  nub lst == lst && length lst > 2 && x < length lst && y < length lst && x /= y ==>
+
+    let map = insertBazillion lst
+        smap = foldr folder map (zip [0..] lst)
+
+        folder (idx, (px, py)) map =
+          if idx == x || idx == y
+            then map
+            else delete (V2 px py) map
+
+     in depth smap == 1 && size smap == 2
 
 testBazillion :: [(Int, Int)] -> Property
 testBazillion lst =
