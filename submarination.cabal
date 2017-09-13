@@ -37,6 +37,7 @@ library
                       Submarination.MonotonicClock
                       Submarination.Level
                       Submarination.Plural
+                      Submarination.QuadTree
                       Submarination.Random
                       Submarination.Random.Common
                       Submarination.Render
@@ -77,6 +78,8 @@ library
                       ,bytestring
                       ,clock
                       ,containers
+                      ,criterion
+                      ,deepseq
                       ,delaunay>=0.1.0.2
                       ,gitrev
                       ,hashable
@@ -105,8 +108,11 @@ library
                        FlexibleInstances
                        NoImplicitPrelude
                        OverloadedStrings
+                       DeriveTraversable
                        FlexibleContexts
                        TemplateHaskell
+                       DeriveFoldable
+                       DeriveFunctor
                        DeriveGeneric
                        BangPatterns
                        ViewPatterns
@@ -127,11 +133,14 @@ executable submarination
                        UndecidableInstances
                        ScopedTypeVariables
                        DeriveDataTypeable
+                       DeriveTraversable
                        FlexibleInstances
                        NoImplicitPrelude
                        OverloadedStrings
                        FlexibleContexts
                        TemplateHaskell
+                       DeriveFoldable
+                       DeriveFunctor
                        DeriveGeneric
                        BangPatterns
                        ViewPatterns
@@ -158,8 +167,11 @@ test-suite submarination-tests
                        FlexibleInstances
                        NoImplicitPrelude
                        OverloadedStrings
+                       DeriveTraversable
                        FlexibleContexts
                        TemplateHaskell
+                       DeriveFoldable
+                       DeriveFunctor
                        DeriveGeneric
                        BangPatterns
                        ViewPatterns
@@ -167,3 +179,32 @@ test-suite submarination-tests
                        MultiWayIf
                        RankNTypes
 
+benchmark submarination-benchmarks
+  type:                exitcode-stdio-1.0
+  main-is:             Main.hs
+  build-depends:       base >=4.9 && <5.0
+                      ,criterion
+                      ,submarination
+                      ,protolude
+  hs-source-dirs:      benchmarks
+  ghc-options:         -Wall -fno-warn-name-shadowing -rtsopts -threaded
+  default-language:    Haskell2010
+  default-extensions:  GeneralizedNewtypeDeriving
+                       MultiParamTypeClasses
+                       UndecidableInstances
+                       ScopedTypeVariables
+                       DeriveDataTypeable
+                       FlexibleInstances
+                       NoImplicitPrelude
+                       DeriveTraversable
+                       OverloadedStrings
+                       FlexibleContexts
+                       TemplateHaskell
+                       DeriveFoldable
+                       DeriveFunctor
+                       DeriveGeneric
+                       BangPatterns
+                       ViewPatterns
+                       LambdaCase
+                       MultiWayIf
+                       RankNTypes
