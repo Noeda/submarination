@@ -41,10 +41,10 @@ printLock = unsafePerformIO $ newMVar ()
 writeGif :: MonadIO m => [TerminalState] -> FilePath -> m ()
 writeGif tss fpath = liftIO $ do
   imgs <- forConcurrently (zip [1..] tss) $ \(counter, ts) -> do
-            withMVar printLock $ \_ -> putStrLn $ (show (counter :: Int) :: Text)
+            withMVar printLock $ \_ -> putStrLn (show (counter :: Int) :: Text)
             img <- toImage ts
             evaluated <- evaluate img
-            withMVar printLock $ \_ -> putStrLn $ (show counter <> " done" :: Text)
+            withMVar printLock $ \_ -> putStrLn (show counter <> " done" :: Text)
             return evaluated
 
   case writeGifImages fpath LoopingForever (fmap (\img -> (gifPalette, 10, img)) imgs) of
@@ -60,7 +60,7 @@ toImage ts = liftIO $ do
   toPixel word32 =
     let r = fromIntegral $ (word32 .&. 0xff0000) `shiftR` 16
         g = fromIntegral $ (word32 .&. 0x00ff00) `shiftR` 8
-        b = fromIntegral $ (word32 .&. 0x0000ff)
+        b = fromIntegral   (word32 .&. 0x0000ff)
 
      in closestPixel r g b
   {-# INLINE toPixel #-}
@@ -79,7 +79,7 @@ toImage ts = liftIO $ do
     marr <- VM.replicate (width*height+1) (0 :: Word32)
 
     withImageSurface FormatRGB24 width height $ \surf -> do
-      renderWith surf $ do
+      renderWith surf $
         for_ [0..h-1] $ \ty -> for_ [0..w-1] $ \tx -> do
           let layout_x = tw*fromIntegral tx
               layout_y = th*fromIntegral ty
@@ -119,7 +119,7 @@ colorList = VB.fromList [ (fintensity, fcolor) | fintensity <- [Vivid, Dull], fc
 {-# NOINLINE colorList #-}
 
 colorTripleList :: V.Vector (Double, Double, Double)
-colorTripleList = V.fromList $ fmap (\(i, c) -> cellColorsToTriple i c) $ VB.toList colorList
+colorTripleList = V.fromList $ fmap (uncurry cellColorsToTriple) $ VB.toList colorList
 {-# NOINLINE colorTripleList #-}
 
 closestPixel :: Word8 -> Word8 -> Word8 -> Word8

@@ -129,9 +129,9 @@ instance Arbitrary ItemType where
   shrink item | items <- item^.itemTypeContents, not (null items) =
     let nitems = length items
         sitems = fmap shrink items
-     in [(item & itemTypeContents .~ [])
-        ,(item & itemTypeContents .~ (take (nitems `div` 2) items))
-        ,(item & itemTypeContents .~ (drop (max 1 $ nitems `div` 2) items))] <>
+     in [item & itemTypeContents .~ []
+        ,item & itemTypeContents .~ take (nitems `div` 2) items
+        ,item & itemTypeContents .~ drop (max 1 $ nitems `div` 2) items] <>
         fmap (\sitem_set -> item & itemTypeContents .~ sitem_set) sitems
 
   shrink _ = []
@@ -467,9 +467,9 @@ tests =
 testChickenSpoilage :: Bool
 testChickenSpoilage =
   let chicken = itemFromType (intToTurn 100) Chicken
-   in isSpoiled (intToTurn 100) chicken == False &&
-      isSpoiled (intToTurn 200) chicken == False &&
-      isSpoiled (intToTurn 10000) chicken == True
+   in not (isSpoiled (intToTurn 100) chicken) &&
+      not (isSpoiled (intToTurn 200) chicken) &&
+      isSpoiled (intToTurn 10000) chicken
 
 testGroupItemsReversible :: [Item] -> Bool
 testGroupItemsReversible items =
@@ -477,13 +477,13 @@ testGroupItemsReversible items =
 
 testCanonicalizedFrozenHistory :: Item -> Turn -> Bool
 testCanonicalizedFrozenHistory item turn' =
-  let max_turn = maximum $ (item^.creationTurn):(fmap intToTurn $ IM.keys $ item^.frozenHistory)
+  let max_turn = maximum $ (item^.creationTurn):fmap intToTurn (IM.keys $ item^.frozenHistory)
       turn = turn' + max_turn
    in unfrozenQuotient turn item == unfrozenQuotient turn (canonicalizeFrozenHistory frozenHistory item turn)
 
 testCanonicalizedRefrigeratedHistory :: Item -> Turn -> Bool
 testCanonicalizedRefrigeratedHistory item turn' =
-  let max_turn = maximum $ (item^.creationTurn):(fmap intToTurn $ IM.keys $ item^.refrigeratedHistory)
+  let max_turn = maximum $ (item^.creationTurn):fmap intToTurn (IM.keys $ item^.refrigeratedHistory)
       turn = turn' + max_turn
    in unfrozenQuotient turn item == unfrozenQuotient turn (canonicalizeFrozenHistory refrigeratedHistory item turn)
 

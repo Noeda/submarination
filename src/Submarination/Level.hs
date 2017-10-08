@@ -33,6 +33,7 @@ import Protolude hiding ( (&) )
 
 import Submarination.Creature
 import Submarination.Item
+import qualified Submarination.QuadTree as Q
 import Submarination.Turn
 
 data Level = Level
@@ -40,7 +41,7 @@ data Level = Level
   , _levelCells          :: !(M.Map (V2 Int) LevelCell)
   , _levelActiveMetadata :: !(M.Map (V2 Int) LevelActiveMetadata)
   , _levelItems          :: !(M.Map (V2 Int) [Item])
-  , _creatures           :: !(M.Map (V2 Int) Creature) }
+  , _creatures           :: !(Q.IntQuadTree Creature) }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 newtype LevelActiveMetadata
@@ -138,7 +139,7 @@ cellAt coords = lens get_it set_it
 
 placeCreature :: Creature -> V2 Int -> Level -> Level
 placeCreature creature location =
-  creatures %~ M.insert location creature
+  creatures.at location .~ Just creature
 
 placeItem :: Item -> V2 Int -> Level -> Level
 placeItem item location =
@@ -151,7 +152,7 @@ emptyLevel default_cell = Level
   { _defaultLevelCell = default_cell
   , _levelCells = mempty
   , _levelItems = mempty
-  , _creatures = mempty
+  , _creatures = Q.empty
   , _levelActiveMetadata = mempty }
 
 levelFromStrings :: LevelCell -> [Text] -> Level
@@ -163,7 +164,7 @@ levelFromStringsPlacements default_cell settings strs =
       base_level = Level { _defaultLevelCell    = default_cell
                          , _levelCells          = cells
                          , _levelItems          = M.empty
-                         , _creatures           = M.empty
+                         , _creatures           = Q.empty
                          , _levelActiveMetadata = M.empty }
 
    in foldr (placements_folder integer_location_mapping) base_level settings
@@ -210,12 +211,12 @@ rebase offset level = level
   { _levelCells          = M.mapKeys (\x -> x - offset) (_levelCells level)
   , _levelActiveMetadata = M.mapKeys (\x -> x - offset) (_levelActiveMetadata level)
   , _levelItems          = M.mapKeys (\x -> x - offset) (_levelItems level)
-  , _creatures           = M.mapKeys (\x -> x - offset) (_creatures level) }
+  , _creatures           = Q.mapKeys (\x -> x - offset) (_creatures level) }
 
 creatureAt :: V2 Int -> Lens' Level (Maybe Creature)
 creatureAt pos = lens get_it set_it
  where
-  get_it lvl = M.lookup pos (lvl^.creatures)
-  set_it lvl Nothing = lvl & creatures %~ M.delete pos
-  set_it lvl (Just creature) = lvl & creatures %~ M.insert pos creature
+  get_it lvl = lvl^.creatures.at pos
+  set_it lvl Nothing = lvl & creatures.at pos .~ Nothing
+  set_it lvl (Just creature) = lvl & creatures.at pos .~ Just creature
 

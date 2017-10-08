@@ -142,6 +142,7 @@ import Submarination.GameState.Types
 import Submarination.Index
 import Submarination.Item hiding ( tests )
 import Submarination.Level
+import qualified Submarination.QuadTree as Q
 import Submarination.Random
 import Submarination.Sub
 import Submarination.Tension hiding ( tests )
@@ -152,7 +153,7 @@ type GameMonad m = StateT GameState m
 type GameMonadRo m = ReaderT GameState m
 
 initialGameState :: GameState
-initialGameState = gsIndexUnindexedCreatures $ GameState
+initialGameState = gsIndexUnindexedCreatures GameState
   { _player = Player { _playerPosition = V2 15 8
                      , _playerMaximumHealth = 100
                      , _playerHealth = 100
@@ -248,7 +249,7 @@ statusName God = "God"
 
 gsIsSlow :: GameState -> Bool
 gsIsSlow gs =
-  (isJust $ gs^.player.playerDragging) ||
+  isJust (gs^.player.playerDragging) ||
   (gs^.player.playerHunger <= 100)
 
 gsIsSatiated :: GameState -> Bool
@@ -526,7 +527,7 @@ gmMoveToDirection direction gs = flip evalState gs $ runMaybeT $ do
     gs <- get
     case cableToList old_playerpos cable_index gs of
       Nothing -> return ()
-      Just cable_positions -> do
+      Just cable_positions ->
         case pullTension (\pos -> not $ isWalkable (gs^.glCellAt pos))
                          new_playerpos
                          cable_positions
@@ -876,7 +877,7 @@ geEatItem item gs = do
               (player.playerInventory %~ delete item) .
               (player.playerHunger +~ (itemNutrition item `div` 3))
     else gs & (player.playerInventory %~ delete item) .
-              (player.playerHunger +~ (itemNutrition item))
+              (player.playerHunger +~ itemNutrition item)
 
 geDropItem :: Item -> GameState -> Failing GameState
 geDropItem item gs = do
@@ -985,7 +986,7 @@ defaultItemHandler key item_lens = ActionHandler
   , selectMode            = NotSelectable
   , menuKeys              = M.empty
   , prerequisites         = const True
-  , menuFilter            = (\_ _ -> True)
+  , menuFilter            = \_ _ -> True
   , quickEnterAction      = const Nothing
   , otherKeys             = const M.empty
   , toActiveMenuInventory = const []
@@ -1002,9 +1003,7 @@ anyItemMenuFilter _ _ = True
 
 menuTransition :: GameState -> Char -> Text -> Action -> [(Char, Text)]
 menuTransition gs ch text ams =
-  if prerequisites (actionHandler ams) gs
-    then [(ch, text)]
-    else []
+  [(ch, text) | prerequisites (actionHandler ams) gs]
 
 actionHandler :: Action -> ActionHandler
 actionHandler Inventory = (defaultItemHandler Inventory (player.playerInventory))
@@ -1028,8 +1027,8 @@ actionHandler Eat = (defaultItemHandler Eat (player.playerInventory))
   , selectMode = SingleSelect
   , menuKeys = M.fromList [('e', ("Eat", (^.to geEatInventoryItemByMenu)))]
   , prerequisites = \gs -> gmActiveMenu gs == Just Inventory &&
-                           not (null $ filter isEdible $ gs^.player.playerInventory)
-  , menuFilter = \_ -> isEdible }
+                           any isEdible (gs^.player.playerInventory)
+  , menuFilter = const isEdible }
 
 actionHandler Drop = (defaultItemHandler Drop (player.playerInventory))
   { triggerKeys = S.fromList "d"
@@ -1112,11 +1111,11 @@ actionHandler MicrowaveMenu = (defaultItemHandler MicrowaveMenu activeMenuInvent
   }
 
 actionHandler Anchor = (singleKeyAction Anchor $ \gs -> do
-    guard (gmActiveMenu gs == Nothing)
+    guard (isNothing $ gmActiveMenu gs)
     guard (gs^?player.playerDragging._Just.itemType == Just (WinchAndCable False))
-    guard (gs^.gllAtPlayer glBulkyItemAt == Nothing)
-    guard (gs^.player.playerTethered == Nothing)
-    guard (gs^.sub.subDiving == False)
+    guard (isNothing $ gs^.gllAtPlayer glBulkyItemAt)
+    guard (isNothing $ gs^.player.playerTethered)
+    guard (not $ gs^.sub.subDiving)
 
     Just $ flip execState gs $ do
       old_item <- use (player.playerDragging)
@@ -1124,14 +1123,14 @@ actionHandler Anchor = (singleKeyAction Anchor $ \gs -> do
       player.playerDragging .= Nothing
       idx <- nextGSIndex
       player.playerTethered .= Just idx
-      gllAtPlayer (glCableAt idx) .= (IM.singleton 0 $ Cable 0 idx End End))
+      gllAtPlayer (glCableAt idx) .= IM.singleton 0 (Cable 0 idx End End))
   {
     menuName      = const "Anchor"
   , triggerKeys   = S.fromList "w"
   }
 
 actionHandler UnAnchor = (singleKeyAction UnAnchor $ \gs -> do
-    guard (gmActiveMenu gs == Nothing)
+    guard (isNothing $ gmActiveMenu gs)
     guard (isNothing $ gs^?player.playerDragging._Just.itemType)
     guard (gs^?gllAtPlayer glBulkyItemAt._Just.itemType == Just (WinchAndCable True))
     tether <- gs^.player.playerTethered
@@ -1147,7 +1146,7 @@ actionHandler UnAnchor = (singleKeyAction UnAnchor $ \gs -> do
 
 actionHandler RetractTether =
   (singleKeyAction RetractTether $ \gs -> do
-    guard (gmActiveMenu gs == Nothing)
+    guard (isNothing $ gmActiveMenu gs)
     tether <- gs^.player.playerTethered
 
     let untether gs = do guard (not $ gsIsRootCable tether (gs^.player.playerPosition) gs)
@@ -1171,7 +1170,7 @@ geMicrowave gs = do
   guardE (gs^.sub.subEnergy >= 5) "Submarine does not have enough energy."
 
   let microwaveables = fromMaybe [] $ gs^?gllAtPlayer glBulkyItemAt._Just.itemContents :: [Item]
-  guardE (length microwaveables > 0) "There is nothing inside microwave."
+  guardE (not (null microwaveables)) "There is nothing inside microwave."
 
   microwaved <- addFail (traverse (microwaveItem (gsTurn gs)) microwaveables) "There is nothing microwaveable inside microwave."
 
@@ -1271,7 +1270,7 @@ glCreatureAt = subOrLevelLens creatureAt subCreatureP
 gsRemoveCreaturesUnderSub :: GameState -> GameState
 gsRemoveCreaturesUnderSub gs = gs & glCurrentLevel.creatures %~ removeThem
  where
-  removeThem = M.filterWithKey (\loc _creature -> not $ gsIsSubLocation loc gs)
+  removeThem = Q.filterWithKey (\loc _creature -> not $ gsIsSubLocation loc gs)
 
 -- | Gets the next unique `Index` from `GameState`.
 nextGSIndex :: (MonadState s m, HasGameState s) => m Index
@@ -1344,14 +1343,14 @@ gmRetractTether gs = do
                                (tail $ reverse cablelist)
                                False
 
-  let Just new_playerpos = head $ reverse new_positions
+  let new_playerpos = last new_positions
 
   guard (isWalkable $ gs^.glCellAt new_playerpos)
   guard (isNothing $ gs^.glCreatureAt new_playerpos)
   guard (isNothing (gs^.player.playerDragging) ||
          isNothing (gs^.glBulkyItemAt new_playerpos))
 
-  return $ (putNewCableToList cablelist (reverse new_positions) cable_index gs) &
+  return $ putNewCableToList cablelist (reverse new_positions) cable_index gs &
            (player.playerPosition .~ new_playerpos)
 
 glLevelAt :: Int -> Lens' GameState (Maybe Level)

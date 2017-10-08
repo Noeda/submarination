@@ -119,13 +119,13 @@ data GameState = GameState
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 
 data Player = Player
-  { _playerPosition      :: (V2 Int)
+  { _playerPosition      :: V2 Int
   , _playerMaximumHealth :: Int
   , _playerHealth        :: Int
   , _playerOxygen        :: Int
   , _playerShells        :: Int
   , _playerInventory     :: [Item]
-  , _playerDragging      :: (Maybe Item)
+  , _playerDragging      :: Maybe Item
   , _playerHunger        :: Int
   , _playerTethered      :: Maybe Index }
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )

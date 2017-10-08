@@ -90,9 +90,9 @@ library
                       ,primitive>=0.6.1.0
                       ,protolude
                       ,stm
-                      ,QuickCheck
+                      ,QuickCheck >=2.8
                       ,test-framework
-                      ,test-framework-quickcheck2
+                      ,test-framework-quickcheck2>=0.3.0.4
                       ,text
                       ,transformers
                       ,vector

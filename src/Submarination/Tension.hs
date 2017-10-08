@@ -54,12 +54,13 @@ moveTowardsUntil obstacles first_candidate test subject@(V2 x1 y1) target@(V2 x2
                   then Nothing
                   else same_dir)
 
-  same_dir =
-    if test first_candidate target && test subject first_candidate
-      then Just first_candidate
-      else (if straight_pull
-              then diagonal
-              else Nothing)
+  same_dir
+    | test first_candidate target && test subject first_candidate =
+        Just first_candidate
+    | straight_pull =
+        diagonal
+    | otherwise =
+        Nothing
 
 pullTension :: (V2 Int -> Bool) -> V2 Int -> [V2 Int] -> Bool -> Maybe [V2 Int]
 pullTension _ _ [] _ = Just []
@@ -82,7 +83,7 @@ tests = [testProperty "tension pulling removes one item from positions" testTens
 
 testTensionPullingListLength :: (Int, Int) -> [(Int, Int)] -> Bool
 testTensionPullingListLength (fx, fy) lst' =
-  let lst = fmap (\(x, y) -> V2 x y) lst'
+  let lst = fmap (uncurry V2) lst'
       first_item = V2 fx fy
    in length (fromJust $ pullTension (const False) first_item lst False) == length lst
 

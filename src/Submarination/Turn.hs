@@ -40,5 +40,5 @@ turnToInt :: Turn -> Int
 turnToInt (Turn x) = x
 
 intToTurn :: Int -> Turn
-intToTurn x = Turn x
+intToTurn = Turn
 
