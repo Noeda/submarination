@@ -6,5 +6,5 @@
 web/upload.sh
 web/bundled.js
 _build/
-src/Submarination/Biome/IntertidalZoneGen.hs
+src/Submarination/Biome/*Gen.hs
 

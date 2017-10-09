@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 
 -- | This module implements a quadtree.
 --
@@ -796,6 +797,11 @@ randomMap = go empty
       Nothing -> go (insert pos n map) (n-1)
       Just{} -> go map n
 
+-- Benchmarks are currently broken with GHCJS
+#ifdef GHCJS_BROWSER
+benchmarks :: [Benchmark]
+benchmarks = []
+#else
 setupBenchmarkEnv :: IO [(IntQuadTree Int, [(V2 Int, Int)])]
 setupBenchmarkEnv =
   runWithRandomSupply 22345 $ do
@@ -834,4 +840,5 @@ benchmarks =
       ,bench "findClosestNeighbourLstIn1000Points" $ whnf (findClosestNeighbourLst (V2 0 0)) lst1000
       ,bench "findClosestNeighbourLstIn10000Points" $ whnf (findClosestNeighbourLst (V2 0 0)) lst10000
       ,bench "findClosestNeighbourLstIn100000Points" $ whnf (findClosestNeighbourLst (V2 0 0)) lst100000]]]
+#endif
 

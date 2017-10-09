@@ -2,6 +2,7 @@ module Submarination.Direction
   ( Direction(..)
   , Cornering(..)
   , allNeighbours
+  , allCardinalNeighbours
   , directionToDelta
   , deltaToDirection
   , deltaToCornering
@@ -23,6 +24,14 @@ data Direction
   | D1
   | D3
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Enum )
+
+allCardinalNeighbours :: V2 Int -> [V2 Int]
+allCardinalNeighbours (V2 x y) =
+  [V2 (x-1) y
+  ,V2 (x+1) y
+  ,V2 x (y-1)
+  ,V2 x (y+1)]
+{-# INLINEABLE allCardinalNeighbours #-}
 
 allNeighbours :: V2 Int -> [V2 Int]
 allNeighbours (V2 x y) =

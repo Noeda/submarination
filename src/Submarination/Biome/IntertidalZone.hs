@@ -19,6 +19,7 @@ import qualified Data.Vector as V
 import Linear.V2
 import Protolude
 
+import Submarination.Biome.Common
 #ifdef USE_BAKED_LEVELS
 import Submarination.Biome.IntertidalZoneGen
 #endif
@@ -40,19 +41,6 @@ intertidalZone = intertidalZoneGen
 
 zoneSize :: Int
 zoneSize = 120
-
-darkenRocks :: Level -> Level
-darkenRocks lvl = flip execState lvl $
-  for_ [0..zoneSize] $ \x -> for_ [0..zoneSize] $ \y -> do
-    let old_cell = lvl^.cellAt (V2 x y)
-    when (old_cell == Rock || old_cell == MountainRock) $
-      when (all (\pos -> let c = lvl^.cellAt pos
-                          in c == Rock || c == MountainRock)
-                (allNeighbours (V2 x y))) $
-        cellAt (V2 x y) %= \case
-          Rock -> DeepRock
-          MountainRock -> DeepMountainRock
-          something_else -> something_else
 
 isAcceptableCreatureLocation :: V2 Int -> Level -> Bool
 isAcceptableCreatureLocation (V2 x y) lvl =
@@ -159,7 +147,7 @@ intertidalZoneGen = runST $
           then do toss <- randomInt (0, 4)
                   lift $ cellAt pos .= (if toss < 4 then Rock else MountainRock)
           else lift $ cellAt pos .= p
-    lift $ modify darkenRocks
+    lift $ modify $ darkenRocks zoneSize
     lift get >>= placeCreatures >>= lift . put
 
 

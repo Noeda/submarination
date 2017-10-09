@@ -67,6 +67,10 @@ data LevelCell
   | Soil
   | Blood
   | BloodCoagulated
+  | Kelp
+  | KelpFresh
+  | KelpFlutter
+  | Seagrass
   deriving ( Eq, Ord, Show, Read, Typeable, Data, Generic, Binary )
 makeLenses ''Level
 
@@ -89,6 +93,10 @@ isWalkable DeepRock = False
 isWalkable DeepMountainRock = False
 isWalkable Blood = True
 isWalkable BloodCoagulated = True
+isWalkable Kelp = False
+isWalkable KelpFresh = False
+isWalkable KelpFlutter = True
+isWalkable Seagrass = True
 
 walkLevelActiveMetadata :: Applicative f => Level -> (V2 Int -> LevelCell -> LevelActiveMetadata -> f (LevelCell, Maybe LevelActiveMetadata)) -> f Level
 walkLevelActiveMetadata level action =

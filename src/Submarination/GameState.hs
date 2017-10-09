@@ -135,6 +135,8 @@ import qualified Prelude as E
 import Protolude hiding ( (&), to )
 import Test.Framework
 
+import Submarination.Biome.AncientCaves
+import Submarination.Biome.KelpForest
 import Submarination.Biome.IntertidalZone
 import Submarination.Creature
 import Submarination.Direction
@@ -176,7 +178,9 @@ initialGameState = gsIndexUnindexedCreatures GameState
   , _cables = M.empty
   , _levels = M.fromList
                 [(0, surfaceLevel)
-                ,(50, rebase (V2 70 70) intertidalZone)]
+                ,(50, rebase (V2 70 70) kelpForest)
+                ,(100, rebase (V2 70 70) intertidalZone)
+                ,(150, rebase (V2 70 70) ancientCaves)]
   , _messages = M.empty
   , _sub = Sub { _subPosition = V2 23 (-2)
                , _subTopology = initial_sub_topo
@@ -338,7 +342,7 @@ gsAdvanceTurn gs =
       modify gsRemoveCreaturesUnderSub
 
     curdepth <- use depth
-    when (curdepth >= 50) $
+    when (curdepth `mod` 50 == 0) $
       sub.subDiving .= False
 
     -- Oxygen runs out if you are not on surface and outside submarine

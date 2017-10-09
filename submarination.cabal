@@ -25,7 +25,10 @@ flag gif
 
 library
   exposed-modules:    Submarination
+                      Submarination.Biome.Common
                       Submarination.Biome.Gen
+                      Submarination.Biome.AncientCaves
+                      Submarination.Biome.KelpForest
                       Submarination.Biome.IntertidalZone
                       Submarination.Creature
                       Submarination.Direction
@@ -51,7 +54,9 @@ library
 
   if flag(use-baked-levels)
     cpp-options:       -DUSE_BAKED_LEVELS
-    exposed-modules:   Submarination.Biome.IntertidalZoneGen
+    exposed-modules:   Submarination.Biome.AncientCavesGen
+                       Submarination.Biome.KelpForestGen
+                       Submarination.Biome.IntertidalZoneGen
 
   if flag(gif)
     cpp-options:       -DGIF
@@ -84,7 +89,7 @@ library
                       ,gitrev
                       ,hashable
                       ,lens
-                      ,linear
+                      ,linear>=1.20.7
                       ,mtl
                       ,mwc-random
                       ,primitive>=0.6.1.0

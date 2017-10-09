@@ -269,6 +269,17 @@ levelFeatureToAppearance depth lcell monotonic_time x y = case lcell of
   Soil              -> Cell Dull Yellow Dull Black '.'
   Blood             -> Cell Vivid Red Dull Black '≈'
   BloodCoagulated   -> Cell Dull Red Dull Black '≈'
+  Kelp              -> Cell Dull Green Dull Black '#'
+  KelpFresh         -> Cell Vivid Green Dull Black '#'
+  KelpFlutter       -> Cell Dull Green Dull Black '~'
+
+  cell | cell == Seagrass ->
+    let dy' = dy + fromIntegral depth
+        theta = sin (dx*3332.3) + cos (sin (dy'*1.1)*117) - sin (sin dx+cos dy'*1337 + sin sectime)
+
+     in if theta < 0.8
+          then Cell Vivid Green Dull Black '.'
+          else Cell Dull Green Dull Black '.'
 
   cell | cell == Water ->
     let dy' = dy + fromIntegral depth

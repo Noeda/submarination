@@ -21,12 +21,21 @@ findLocalRoot yaml = liftIO $ do
     Just line -> return $ drop 20 line
 
 buildableLevels =
-  ["src/Submarination/Biome/IntertidalZoneGen.hs"]
+  ["src/Submarination/Biome/KelpForestGen.hs"
+  ,"src/Submarination/Biome/AncientCavesGen.hs"
+  ,"src/Submarination/Biome/IntertidalZoneGen.hs"]
 
 hsDependencies = do
   hs <- getDirectoryFiles "" ["src//*.hs"]
   hs_exe <- getDirectoryFiles "" ["exe//*.hs"]
   need $ hs <> hs_exe <> buildableLevels
+
+levelBuild gen_name name fun_name =
+  gen_name %> \out -> do
+    need [name]
+    let mod_name = fmap (\c -> if c == '/' then '.' else c) $ dropExtension $ dropDirectory1 out
+        c = "echo 'import Submarination.Biome.Gen\\ntoHaskellSourceFile \"" <> out <> "\" \"" <> mod_name <> "\" " <> fun_name <> "\n' | stack ghci --flag submarination:-use-baked-levels --stack-yaml stack.yaml"
+    cmd Shell c
 
 main :: IO ()
 main = shakeArgsWith shakeOptions{shakeFiles="_build", shakeThreads=2} flags $ \flags targets -> return $ Just $ do
@@ -69,11 +78,17 @@ main = shakeArgsWith shakeOptions{shakeFiles="_build", shakeThreads=2} flags $ \
     need [dropExtension out]
     cmd "gzip" "-9" "-f" "-k" (dropExtension out)
 
-  "src/Submarination/Biome/IntertidalZoneGen.hs" %> \out -> do
-    need ["src/Submarination/Biome/IntertidalZone.hs"]
-    let mod_name = fmap (\c -> if c == '/' then '.' else c) $ dropExtension $ dropDirectory1 out
-        c = "echo 'import Submarination.Biome.Gen\\ntoHaskellSourceFile \"" <> out <> "\" \"" <> mod_name <> "\" intertidalZoneGen\n' | stack ghci --flag submarination:-use-baked-levels --stack-yaml stack.yaml"
-    cmd Shell c
+  levelBuild "src/Submarination/Biome/IntertidalZoneGen.hs"
+             "src/Submarination/Biome/IntertidalZone.hs"
+             "intertidalZoneGen"
+
+  levelBuild "src/Submarination/Biome/KelpForestGen.hs"
+             "src/Submarination/Biome/KelpForest.hs"
+             "kelpForestGen"
+
+  levelBuild "src/Submarination/Biome/AncientCavesGen.hs"
+             "src/Submarination/Biome/AncientCaves.hs"
+             "ancientCavesGen"
 
   "_build/submarination" <.> exe %> \out -> do
     hsDependencies
