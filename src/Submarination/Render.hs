@@ -151,7 +151,7 @@ renderSplashScreen = mutateTerminalStateM $ do
   setText 3 16  Vivid Cyan Dull Black "m)"
   setText 10 16 Vivid White Dull Black "Quit"
 #else
-  setText 3 20 Dull White Dull Black "(c) 2017 Mikko Juola"
+  setText 3 20 Dull White Dull Black "(c) 2017-2025 Mikko Juola"
   setText 3 21 Dull White Dull Black "https://github.com/Noeda/submarination"
 #endif
 

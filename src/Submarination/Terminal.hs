@@ -39,5 +39,5 @@ import Submarination.Terminal.GHCJS
 import Submarination.Terminal.Unix
 #endif
 
-import System.Console.ANSI
+import System.Console.ANSI hiding ( getTerminalSize )
 

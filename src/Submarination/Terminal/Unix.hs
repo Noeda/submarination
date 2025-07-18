@@ -16,7 +16,7 @@ import Foreign.Marshal.Alloc
 import Foreign.Ptr
 import Foreign.Storable
 import Protolude hiding ( StateT, evalStateT )
-import System.Console.ANSI
+import System.Console.ANSI hiding ( getTerminalSize )
 import System.IO
 
 import Submarination.Key

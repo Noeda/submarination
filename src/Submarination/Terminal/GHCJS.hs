@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Submarination.Terminal.GHCJS
   ( module System.Console.ANSI
   , withKeyboardTerminal
@@ -13,30 +15,54 @@ import Control.Concurrent.STM
 import Control.Lens
 import Data.Array ( (!) )
 import Data.String ( fromString )
-import Data.JSString
 import qualified Data.Map.Strict as M
 import Data.Maybe
+#ifdef GHCJS
 import GHCJS.Foreign.Callback
 import GHCJS.Types
+import Data.JSString
+#else
+import GHC.Wasm.Prim
+#endif
 import Protolude
-import System.Console.ANSI
+import System.Console.ANSI hiding ( getTerminalSize )
 import System.IO.Unsafe ( unsafePerformIO )
 
 import Submarination.Key
 import Submarination.Terminal.Common
 
+-- GHCJS: you assign to $r
+-- WASM: you return the value
+
+#ifdef GHCJS
 foreign import javascript "$r = document.createElement('span');" make_span_element :: IO JSVal
 foreign import javascript "$r = document.createElement('br');" make_br_element :: IO JSVal
 foreign import javascript "$r = document.createElement('div');" make_div_element :: IO JSVal
-foreign import javascript "$1.appendChild($2)" append_child :: JSVal -> JSVal -> IO ()
-foreign import javascript unsafe "$1.textContent = $2" set_text_content :: JSVal -> JSString -> IO ()
-foreign import javascript unsafe "$1.style.cssText = $2" set_style :: JSVal -> JSString -> IO ()
 foreign import javascript "$r = document.getElementById('content')" get_content_div :: IO JSVal
-foreign import javascript "$1.addEventListener('keydown', $2);" attach_keydown_handler :: JSVal -> Callback (JSVal -> IO ()) -> IO ()
-foreign import javascript "$1.removeEventListener('keydown', $2);" detach_keydown_handler :: JSVal -> Callback (JSVal -> IO ()) -> IO ()
 foreign import javascript "$r = document.getElementsByTagName('body')[0];" get_body :: IO JSVal
 foreign import javascript unsafe "$r = $1.key || String.fromCharCode($1.keyCode);" get_event_char :: JSVal -> IO JSString
-foreign import javascript "console.log($1);" console_log :: JSString -> IO ()
+#else
+foreign import javascript unsafe "return document.createElement('span');" make_span_element :: IO JSVal
+foreign import javascript unsafe "return document.createElement('br');" make_br_element :: IO JSVal
+foreign import javascript unsafe "return document.createElement('div');" make_div_element :: IO JSVal
+foreign import javascript unsafe "return document.getElementById('content')" get_content_div :: IO JSVal
+foreign import javascript unsafe "return document.getElementsByTagName('body')[0];" get_body :: IO JSVal
+foreign import javascript unsafe "return ($1.key || String.fromCharCode($1.keyCode));" get_event_char :: JSVal -> IO JSString
+#endif
+foreign import javascript unsafe "$1.appendChild($2)" append_child :: JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "$1.textContent = $2" set_text_content :: JSVal -> JSString -> IO ()
+foreign import javascript unsafe "$1.style.cssText = $2" set_style :: JSVal -> JSString -> IO ()
+foreign import javascript unsafe "console.log($1);" console_log :: JSString -> IO ()
+
+#ifdef GHCJS
+foreign import javascript "$1.addEventListener('keydown', $2);" attach_keydown_handler :: JSVal -> Callback (JSVal -> IO ()) -> IO ()
+foreign import javascript "$1.removeEventListener('keydown', $2);" detach_keydown_handler :: JSVal -> Callback (JSVal -> IO ()) -> IO ()
+#else
+foreign import javascript "wrapper" wrapJSFuncToHS :: (JSVal -> IO ()) -> IO JSVal
+
+foreign import javascript unsafe "$1.addEventListener('keydown', $2);" attach_keydown_handler :: JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "$1.removeEventListener('keydown', $2);" detach_keydown_handler :: JSVal -> JSVal -> IO ()
+#endif
 
 globalSpans :: MVar (M.Map (Int, Int) JSVal)
 globalSpans = unsafePerformIO $ newMVar M.empty
@@ -52,16 +78,38 @@ withKeyboardTerminal action = mask $ \restore -> do
 
   -- This div holds everything
   term_div <- make_div_element
-  set_style term_div "font-family: 'Subbie', monospace; font-size: 1.3em;"
+  set_style term_div (stringToJSString "font-family: 'Subbie', monospace; font-size: 1.3em;")
 
   spanner term_div (restore action)
+
+#ifndef GHCJS
+asyncCallback1 :: (JSVal -> IO ()) -> IO JSVal
+asyncCallback1 action = wrapJSFuncToHS action
+
+releaseCallback :: JSVal -> IO ()
+releaseCallback wrapped = freeJSVal wrapped
+
+jsstringToString :: JSString -> [Char]
+jsstringToString jsstr = fromJSString jsstr
+
+stringToJSString :: [Char] -> JSString
+stringToJSString str = toJSString str
+#else
+-- GHCJS codepath
+-- Never tested if these compile on ghcjs, since adding wasm backend. - 2025-07-17
+jsstringToString :: JSString -> [Char]
+jsstringToString jsstr = unpack jsstr
+
+stringToJSString :: [Char] -> JSString
+stringToJSString = fromString
+#endif
 
 spanner :: JSVal -> IO a -> IO a
 spanner term_div action = do
   -- Spans that show each symbol
   spans <- fmap M.fromList $ for [ (x, y) | x <- [0..79], y <- [0..23] ] $ \(x, y) -> do
     span <- make_span_element
-    set_text_content span "\x00a0"
+    set_text_content span (stringToJSString "\x00a0")
     return ((x, y), span)
 
   let _ = spans :: M.Map (Int, Int) JSVal
@@ -78,8 +126,8 @@ spanner term_div action = do
   modifyMVar_ globalSpans $ \_ -> return spans
 
   callback <- asyncCallback1 $ \val -> do
-    js_str <- get_event_char val
-    case unpack js_str of
+    js_str <- get_event_char val :: IO JSString
+    case jsstringToString js_str of
       [ch] ->
         atomically $ readTVar inputKey >>= \case
           Nothing -> writeTVar inputKey (Just $ CharKey ch)
@@ -103,7 +151,8 @@ spanner term_div action = do
       _ -> return ()
 
   body <- get_body
-  set_style body "background: #000;"
+  set_style body $ stringToJSString "background: #000;"
+
   attach_keydown_handler body callback
 
   finally action $ do
@@ -122,7 +171,7 @@ paintCell cell span = do
       ch = if ch' == ' ' then '\x00a0' else ch'
       style = cellToStyle cell
 
-  set_text_content span $ fromString [ch]
+  set_text_content span $ stringToJSString [ch]
   set_style span style
 {-# INLINE paintCell #-}
 
@@ -144,43 +193,56 @@ paintTerminal (Just old_term) term = liftIO $ do
 
 cellToStyle :: Cell -> JSString
 cellToStyle cell =
-  foregroundToStyle cell `mappend` backgroundToStyle cell
+  -- Used to be:
+  -- foregroundToStyle cell `mappend` backgroundToStyle cell
+  -- 
+  -- But in wasm, JSString is not a monoid. Solution: convert to regular
+  -- string, append, convert back.
+  let str1 = jsstringToString (foregroundToStyle cell)
+      str2 = jsstringToString (backgroundToStyle cell)
+   in stringToJSString $ str1 `mappend` str2
 
 foregroundToStyle :: Cell -> JSString
-foregroundToStyle (Cell Vivid White _ _ _) = "color: #fff;"
-foregroundToStyle (Cell Vivid Red _ _ _) = "color: #f00;"
-foregroundToStyle (Cell Vivid Green _ _ _) = "color: #0f0;"
-foregroundToStyle (Cell Vivid Blue _ _ _) = "color: #00f;"
-foregroundToStyle (Cell Vivid Cyan _ _ _) = "color: #0ff;"
-foregroundToStyle (Cell Vivid Magenta _ _ _) = "color: #f0f;"
-foregroundToStyle (Cell Vivid Yellow _ _ _) = "color: #ff0;"
-foregroundToStyle (Cell Vivid Black _ _ _) = "color: #444;"
-foregroundToStyle (Cell Dull White _ _ _) = "color: #888;"
-foregroundToStyle (Cell Dull Red _ _ _) = "color: #800;"
-foregroundToStyle (Cell Dull Green _ _ _) = "color: #080;"
-foregroundToStyle (Cell Dull Blue _ _ _) = "color: #008;"
-foregroundToStyle (Cell Dull Cyan _ _ _) = "color: #088;"
-foregroundToStyle (Cell Dull Magenta _ _ _) = "color: #808;"
-foregroundToStyle (Cell Dull Yellow _ _ _) = "color: #880;"
-foregroundToStyle (Cell Dull Black _ _ _) = "color: #000;"
+foregroundToStyle cell = stringToJSString $ foregroundToStyleJSStr cell
 
 backgroundToStyle :: Cell -> JSString
-backgroundToStyle (Cell _ _ Vivid White _) = "background: #fff;"
-backgroundToStyle (Cell _ _ Vivid Red _) = "background: #f00;"
-backgroundToStyle (Cell _ _ Vivid Green _) = "background: #0f0;"
-backgroundToStyle (Cell _ _ Vivid Blue _) = "background: #00f;"
-backgroundToStyle (Cell _ _ Vivid Cyan _) = "background: #0ff;"
-backgroundToStyle (Cell _ _ Vivid Magenta _) = "background: #f0f;"
-backgroundToStyle (Cell _ _ Vivid Yellow _) = "background: #ff0;"
-backgroundToStyle (Cell _ _ Vivid Black _) = "background: #444;"
-backgroundToStyle (Cell _ _ Dull White _) = "background: #888;"
-backgroundToStyle (Cell _ _ Dull Red _) = "background: #800;"
-backgroundToStyle (Cell _ _ Dull Green _) = "background: #080;"
-backgroundToStyle (Cell _ _ Dull Blue _) = "background: #008;"
-backgroundToStyle (Cell _ _ Dull Cyan _) = "background: #088;"
-backgroundToStyle (Cell _ _ Dull Magenta _) = "background: #808;"
-backgroundToStyle (Cell _ _ Dull Yellow _) = "background: #880;"
-backgroundToStyle (Cell _ _ Dull Black _) = "background-rgba:rgba(0,0,0,0);"
+backgroundToStyle cell = stringToJSString $ backgroundToStyleJSStr cell
+
+foregroundToStyleJSStr :: Cell -> [Char]
+foregroundToStyleJSStr (Cell Vivid White _ _ _) = "color: #fff;"
+foregroundToStyleJSStr (Cell Vivid Red _ _ _) = "color: #f00;"
+foregroundToStyleJSStr (Cell Vivid Green _ _ _) = "color: #0f0;"
+foregroundToStyleJSStr (Cell Vivid Blue _ _ _) = "color: #00f;"
+foregroundToStyleJSStr (Cell Vivid Cyan _ _ _) = "color: #0ff;"
+foregroundToStyleJSStr (Cell Vivid Magenta _ _ _) = "color: #f0f;"
+foregroundToStyleJSStr (Cell Vivid Yellow _ _ _) = "color: #ff0;"
+foregroundToStyleJSStr (Cell Vivid Black _ _ _) = "color: #444;"
+foregroundToStyleJSStr (Cell Dull White _ _ _) = "color: #888;"
+foregroundToStyleJSStr (Cell Dull Red _ _ _) = "color: #800;"
+foregroundToStyleJSStr (Cell Dull Green _ _ _) = "color: #080;"
+foregroundToStyleJSStr (Cell Dull Blue _ _ _) = "color: #008;"
+foregroundToStyleJSStr (Cell Dull Cyan _ _ _) = "color: #088;"
+foregroundToStyleJSStr (Cell Dull Magenta _ _ _) = "color: #808;"
+foregroundToStyleJSStr (Cell Dull Yellow _ _ _) = "color: #880;"
+foregroundToStyleJSStr (Cell Dull Black _ _ _) = "color: #000;"
+
+backgroundToStyleJSStr :: Cell -> [Char]
+backgroundToStyleJSStr (Cell _ _ Vivid White _) = "background: #fff;"
+backgroundToStyleJSStr (Cell _ _ Vivid Red _) = "background: #f00;"
+backgroundToStyleJSStr (Cell _ _ Vivid Green _) = "background: #0f0;"
+backgroundToStyleJSStr (Cell _ _ Vivid Blue _) = "background: #00f;"
+backgroundToStyleJSStr (Cell _ _ Vivid Cyan _) = "background: #0ff;"
+backgroundToStyleJSStr (Cell _ _ Vivid Magenta _) = "background: #f0f;"
+backgroundToStyleJSStr (Cell _ _ Vivid Yellow _) = "background: #ff0;"
+backgroundToStyleJSStr (Cell _ _ Vivid Black _) = "background: #444;"
+backgroundToStyleJSStr (Cell _ _ Dull White _) = "background: #888;"
+backgroundToStyleJSStr (Cell _ _ Dull Red _) = "background: #800;"
+backgroundToStyleJSStr (Cell _ _ Dull Green _) = "background: #080;"
+backgroundToStyleJSStr (Cell _ _ Dull Blue _) = "background: #008;"
+backgroundToStyleJSStr (Cell _ _ Dull Cyan _) = "background: #088;"
+backgroundToStyleJSStr (Cell _ _ Dull Magenta _) = "background: #808;"
+backgroundToStyleJSStr (Cell _ _ Dull Yellow _) = "background: #880;"
+backgroundToStyleJSStr (Cell _ _ Dull Black _) = "background-rgba:rgba(0,0,0,0);"
 
 paintAllTerminal :: MonadIO m => TerminalState -> m ()
 paintAllTerminal term = liftIO $ do

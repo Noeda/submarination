@@ -23,6 +23,20 @@ flag gif
     Useful for crisp GIF generation that look awesome, especially good for
     raking in reddit karma
 
+flag browser
+  default: False
+  description:
+    Compile for the browser. Enabled GHCJS_BROWSER. As of 2025-07-17, meant for
+    the wasm backend in GHC that was introduced much later than Submarination
+    was created first time. Also use ghcjs flag if actually using ghcjs rather
+    than wasm (although here writing this, I don't know if it would even work
+    anymore).
+
+flag ghcjs
+  default: False
+  description:
+    Compile for the browser, with ghcjs. Must also use 'browser' flag.
+
 library
   exposed-modules:    Submarination
                       Submarination.Biome.Common
@@ -65,12 +79,18 @@ library
                       ,pango       >= 0.13
                       ,JuicyPixels >= 3.2
 
-  if impl(ghcjs)
+  if flag(browser)
+    -- really means wasm now - 2025-07-17
     cpp-options:       -DGHCJS_BROWSER
     exposed-modules:   Submarination.Random.GHCJS
                        Submarination.Terminal.GHCJS
-    build-depends:     ghcjs-base
-  else
+    build-depends:     ghc-experimental
+    -- wasm cannot use ghcjs-base
+    if flag(ghcjs)
+      build-depends:     ghcjs-base
+    if !flag(ghcjs)
+      cpp-options:     -DWASM_BROWSER
+  if !flag(browser)
     exposed-modules:   Submarination.Random.Native
                        Submarination.Terminal.Unix
 
@@ -83,7 +103,6 @@ library
                       ,bytestring
                       ,clock
                       ,containers
-                      ,criterion
                       ,deepseq
                       ,delaunay>=0.1.0.2
                       ,gitrev
@@ -104,7 +123,10 @@ library
   hs-source-dirs:      src
   ghc-options:         -Wall -fno-warn-name-shadowing
   default-language:    Haskell2010
-  c-sources:           cbits/terminal.c
+
+  if !flag(browser)
+    c-sources:         cbits/terminal.c
+
   default-extensions:  GeneralizedNewtypeDeriving
                        MultiParamTypeClasses
                        UndecidableInstances
@@ -131,7 +153,19 @@ executable submarination
                       ,submarination
                       ,protolude
   hs-source-dirs:      exe
-  ghc-options:         -Wall -fno-warn-name-shadowing -rtsopts -threaded "-with-rtsopts=-N"
+  if flag(browser)
+    if !flag(ghcjs)
+      -- Special flags to accommodate the way wasm works (from GHC wasm guide:
+      -- https://ghc.gitlab.haskell.org/ghc/doc/users_guide/wasm.html)
+      cpp-options:     -DWASM_BROWSER
+      c-sources:       cbits/wasm_init.c
+      ghc-options:     -Wall -fno-warn-name-shadowing -no-hs-main -optl-mexec-model=reactor -optl-Wl,--export=submarination_reactor_init
+    if flag(ghcjs)
+      cpp-options:     -DGHCJS_BROWSER
+      -- Same as native
+      ghc-options:     -Wall -fno-warn-name-shadowing -rtsopts -threaded "-with-rtsopts=-N"
+  else
+    ghc-options:         -Wall -fno-warn-name-shadowing -rtsopts -threaded "-with-rtsopts=-N"
   default-language:    Haskell2010
   default-extensions:  GeneralizedNewtypeDeriving
                        MultiParamTypeClasses

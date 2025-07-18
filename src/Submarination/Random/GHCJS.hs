@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Submarination.Random.GHCJS
   ( RandomSupplyT()
   , runWithRandomSupply )
@@ -12,7 +14,11 @@ import Protolude
 
 import Submarination.Random.Common
 
+#ifdef GHCJS
 foreign import javascript unsafe "$r = Math.random();" math_random :: IO Double
+#else
+foreign import javascript unsafe "return Math.random();" math_random :: IO Double
+#endif
 
 newtype RandomSupplyT m a = RandomSupplyT (m a)
   deriving ( Functor, Applicative, Monad, Typeable, Generic )

@@ -6,7 +6,7 @@ import Data.Binary
 import Data.Binary.Put
 import qualified Data.Text as T
 import Protolude hiding ( put )
-import System.IO
+import System.IO hiding ( hPutStrLn, hPutStr )
 
 import Submarination.Level
 

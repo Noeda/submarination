@@ -6,5 +6,15 @@
 web/upload.sh
 web/bundled.js
 _build/
+
+# Cabal build stuff
+dist-newstyle/
+
+# Pre-baked levels
 src/Submarination/Biome/*Gen.hs
 
+# Wasm build artifacts
+wasm-build-tmp/*
+web_wasm/submarination.wasm
+web_wasm/ghc_wasm_jsffi.js
+web_wasm/submarination.js

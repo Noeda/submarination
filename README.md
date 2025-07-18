@@ -1,21 +1,28 @@
 Submarination
 =============
 
-[![Build Status](https://travis-ci.org/Noeda/submarination.svg?branch=master)](https://travis-ci.org/Noeda/submarination)
-
 This is a roguelike themed around diving with a submarine.
 
-Compilation
------------
+This used to be `ghcjs` + native program. In 2025-07-17, I grabbed the code
+that had not been touched in 8 years, and slapped WASM backend to it, using
+GHC 9.12's experimental wasm backend.
 
-Compile with Haskell `stack` tool. Execute `submarination` executable to play.
-You may want to zoom into your terminal if it's much larger than 80x24.
+This is not a complete game at all. But what's there is functional.
 
-If you want to poke around with the browser version, invoke `stack` with
-`--stack-yaml stack-browser.yaml` and then navigate to `web/` directory. You
-may have to relink `bundle.js` to point to `all.js` in stack build files.
+How to compile and run
+----------------------
 
-There is also a Shake file in `Build.hs` at the root of this repository. You'll
-need it to build so-called baked levels that are included and compiled within
-source code. It speeds up loading considerably but isn't essential otherwise.
+To run it natively, get yourself a Haskell setup, and do `cabal run`.
+
+I've tested this with GHC 9.12, but it likely runs on much older GHC's as well.
+
+WASM (browser backend)
+----------------------
+
+If you want to build for wasm, do `cabal build --flag browser`. This only
+builds the `.wasm` file, so you may want to check `build_wasm.sh` for more
+information. At the time of writing this (2025-07-17), the wasm building is
+fragile as it relies on experimental GHC features and I would expect it to
+break as the wasm backend matures and the hacks in `build_wasm.sh` become less
+necessary.
 

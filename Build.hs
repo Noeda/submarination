@@ -1,5 +1,9 @@
 #!/usr/bin/env runhaskell
 
+-- 2025-07-17 Note: I could not get this file from 2017 to run today. Its main
+-- useful feature is "precompiling" level files, so that they are not generated
+-- at runtime. I instead wrote "build_level_files.sh".
+
 import Control.Monad
 import Data.List
 import Data.Maybe ( fromMaybe )

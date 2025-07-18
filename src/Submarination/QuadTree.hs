@@ -27,14 +27,15 @@ module Submarination.QuadTree
   , showPretty
 
   , tests
-  , benchmarks )
+  )
+  --, benchmarks ) -- wasm backend - 2025-07-17
   where
 
 import Control.Arrow
 import Control.Exception
 import Control.DeepSeq
 import Control.Lens hiding ( Empty )
-import Criterion
+-- import Criterion -- doesn't compile on wasm backend - 2025-07-17
 import Data.Binary
 import Data.Data
 import Data.List ( nub, (!!) )
@@ -797,7 +798,8 @@ randomMap = go empty
       Nothing -> go (insert pos n map) (n-1)
       Just{} -> go map n
 
--- Benchmarks are currently broken with GHCJS
+-- Benchmarks are currently broken with GHCJS (and wasm - 2025-07-17)
+{-
 #ifdef GHCJS_BROWSER
 benchmarks :: [Benchmark]
 benchmarks = []
@@ -841,4 +843,4 @@ benchmarks =
       ,bench "findClosestNeighbourLstIn10000Points" $ whnf (findClosestNeighbourLst (V2 0 0)) lst10000
       ,bench "findClosestNeighbourLstIn100000Points" $ whnf (findClosestNeighbourLst (V2 0 0)) lst100000]]]
 #endif
-
+-}
